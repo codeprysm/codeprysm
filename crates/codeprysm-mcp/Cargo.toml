@@ -1,0 +1,45 @@
+[package]
+name = "codeprysm-mcp"
+description = "MCP server for AI-powered code exploration"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["mcp", "ai", "code-analysis", "llm", "mcp-server"]
+categories = ["development-tools", "api-bindings"]
+
+[features]
+default = []
+metal = ["codeprysm-search/metal"]
+cuda = ["codeprysm-search/cuda"]
+
+[dependencies]
+# Core crates
+codeprysm-core.workspace = true
+codeprysm-search.workspace = true
+
+# MCP SDK
+rmcp.workspace = true
+
+# Async
+tokio.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Hashing for version tracking
+sha2.workspace = true
+
+[dev-dependencies]
+tempfile = "3"

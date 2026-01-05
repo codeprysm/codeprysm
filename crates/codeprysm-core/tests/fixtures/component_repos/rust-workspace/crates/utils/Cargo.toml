@@ -1,0 +1,8 @@
+[package]
+name = "myapp-utils"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+myapp-core = { path = "../core" }
+tracing = "0.1"

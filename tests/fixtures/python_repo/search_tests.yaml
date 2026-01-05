@@ -1,0 +1,191 @@
+# Python Repository Search Test Cases
+# 25 queries: 15 domain, 5 language_feature, 5 filtered
+
+queries:
+  # Domain queries (15) - expected high precision
+  - query: "calculator operations"
+    must_include:
+      - {name: "Calculator", type: "Container", kind: "type"}
+      - {name: "add", type: "Callable"}
+      - {name: "subtract", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "task management"
+    must_include:
+      - {name: "Task", type: "Container", kind: "type"}
+      - {name: "Project", type: "Container", kind: "type"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "person data model"
+    must_include:
+      - {name: "Person", type: "Container", kind: "type"}
+      - {name: "name", type: "Data"}
+      - {name: "email", type: "Data"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "file operations"
+    must_include:
+      - {name: "file_manager", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "configuration constants"
+    must_include:
+      - {name: "MAX_RETRIES", type: "Data", kind: "constant"}
+      - {name: "TIMEOUT_SECONDS", type: "Data", kind: "constant"}
+      - {name: "ConfigManager", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "status tracking"
+    must_include:
+      - {name: "Status", type: "Container"}
+      - {name: "PENDING", type: "Data"}
+      - {name: "COMPLETED", type: "Data"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "data processing functions"
+    must_include:
+      - {name: "simple_function", type: "Callable"}
+      - {name: "function_with_multiple_params", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "class inheritance"
+    must_include:
+      - {name: "BaseClass", type: "Container"}
+      - {name: "DerivedClass", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "decorator pattern"
+    must_include:
+      - {name: "decorator_example", type: "Callable"}
+      - {name: "decorated_function", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "generic container class"
+    must_include:
+      - {name: "GenericContainer", type: "Container"}
+      - {name: "add_item", type: "Callable"}
+      - {name: "get_items", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "list filtering"
+    must_include:
+      - {name: "filter_by_type", type: "Callable"}
+      - {name: "list_comprehension_example", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "value computation"
+    must_include:
+      - {name: "current_value", type: "Callable"}
+      - {name: "value", type: "Data"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "task completion tracking"
+    must_include:
+      - {name: "mark_complete", type: "Callable"}
+      - {name: "get_completed_tasks", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "exception handling"
+    must_include:
+      - {name: "exception_handling_example", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "nested functions"
+    must_include:
+      - {name: "outer_function", type: "Callable"}
+      - {name: "inner_function", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  # Language feature queries (5) - expected lower precision
+  - query: "async functions"
+    must_include:
+      - {name: "async_function", type: "Callable", file: "main.py"}
+      - {name: "async_generator", type: "Callable"}
+    min_precision: 0.4
+    category: language_feature
+    notes: "Embedding model may not understand 'async' well"
+
+  - query: "dataclass models"
+    must_include:
+      - {name: "Task", type: "Container"}
+      - {name: "Person", type: "Container"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "class methods with decorators"
+    must_include:
+      - {name: "current_value", type: "Callable"}
+      - {name: "square", type: "Callable"}
+      - {name: "from_string", type: "Callable"}
+    min_precision: 0.3
+    category: language_feature
+    notes: "Property, staticmethod, classmethod decorators"
+
+  - query: "lambda functions"
+    must_include:
+      - {name: "lambda_example", type: "Callable"}
+      - {name: "double", type: "Callable"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "constructor methods"
+    must_include:
+      - {name: "__init__", type: "Callable"}
+    min_precision: 0.4
+    category: language_feature
+
+  # Filtered queries (5) - expected high precision
+  - query: "class definitions"
+    must_include:
+      - {name: "Calculator", type: "Container", kind: "type"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      kind: type
+
+  - query: "function implementations"
+    must_include:
+      - {name: "simple_function", type: "Callable", kind: "function"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      kind: function
+
+  - query: "constant values"
+    must_include:
+      - {name: "MAX_RETRIES", type: "Data", kind: "constant"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      kind: constant
+
+  - query: "field definitions"
+    must_include:
+      - {name: "name", type: "Data", kind: "field"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      kind: field
+
+  - query: "container types"
+    must_include:
+      - {name: "Calculator", type: "Container"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      type: Container

@@ -1,0 +1,171 @@
+# Helm Search Test Cases
+# Tests against helm/helm repository
+# Go CLI with ~1,700 files, 4K entities
+
+queries:
+  # Domain queries (15) - Helm specific
+  - query: "chart installation"
+    must_include:
+      - {name: "Install"}
+      - {name: "Chart"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "release management"
+    must_include:
+      - {name: "Release"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "repository operations"
+    must_include:
+      - {name: "Repo"}
+      - {name: "Repository"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "upgrade operations"
+    must_include:
+      - {name: "Upgrade"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "rollback functionality"
+    must_include:
+      - {name: "Rollback"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "template rendering"
+    must_include:
+      - {name: "Template"}
+      - {name: "Render"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "kubernetes client"
+    must_include:
+      - {name: "Kube"}
+      - {name: "Client"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "dependency management"
+    must_include:
+      - {name: "Dependency"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "values handling"
+    must_include:
+      - {name: "Values"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "action commands"
+    must_include:
+      - {name: "Action"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "package operations"
+    must_include:
+      - {name: "Package"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "search functionality"
+    must_include:
+      - {name: "Search"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "lint validation"
+    must_include:
+      - {name: "Lint"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "history tracking"
+    must_include:
+      - {name: "History"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "status checking"
+    must_include:
+      - {name: "Status"}
+    min_precision: 0.7
+    category: domain
+
+  # Language feature queries (5)
+  - query: "struct definitions"
+    must_include:
+      - {name: "struct"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "interface implementations"
+    must_include:
+      - {name: "interface"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "error handling"
+    must_include:
+      - {name: "error"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "method receivers"
+    must_include:
+      - {name: "func"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "test functions"
+    must_include:
+      - {name: "Test"}
+    min_precision: 0.4
+    category: language_feature
+
+  # Filtered queries (5)
+  - query: "struct definitions"
+    must_include:
+      - {name: "Install", type: "Container", subtype: "struct"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: struct
+
+  - query: "all functions"
+    must_include:
+      - {name: "Run", type: "Callable"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Callable
+
+  - query: "package modules"
+    must_include:
+      - {name: "action", type: "Container", kind: "module"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: module
+
+  - query: "interface types"
+    must_include:
+      - {name: "Interface", type: "Container", subtype: "interface"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      subtype: interface
+
+  - query: "method implementations"
+    must_include:
+      - {name: "Run", type: "Callable", kind: "function"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: function

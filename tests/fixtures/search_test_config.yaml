@@ -1,0 +1,111 @@
+# Semantic Search Quality Test Configuration
+# This file defines repository locations, precision thresholds, and test settings
+
+repositories:
+  # Test fixtures (fast, always available)
+  python_repo:
+    path: tests/fixtures/python_repo
+    graph: tests/fixtures/python_repo/graph_v2.json
+    tests: tests/fixtures/python_repo/search_tests.yaml
+    description: "Python fixture with classes, functions, decorators, async"
+
+  javascript_repo:
+    path: tests/fixtures/javascript_repo
+    graph: tests/fixtures/javascript_repo/graph_v2.json
+    tests: tests/fixtures/javascript_repo/search_tests.yaml
+    description: "JavaScript/TypeScript fixture with classes, functions, React"
+
+  csharp_repo:
+    path: tests/fixtures/csharp_repo
+    graph: tests/fixtures/csharp_repo/graph_v2.json
+    tests: tests/fixtures/csharp_repo/search_tests.yaml
+    description: "C# fixture with structs, enums, constructors, attributes"
+
+  # Real repositories (slow, optional)
+  azure_compute_azsm:
+    path: /Users/andreym/Projects/Microsoft/Azure-Compute-AZSM
+    graph: /Users/andreym/Projects/Microsoft/Azure-Compute-AZSM/.index/graph_v2.json
+    tests: tests/fixtures/search_tests_azsm.yaml
+    optional: true  # Skip if not available
+    description: "Azure Compute AZSM - 2,800 C# files, 28K entities"
+
+  python_sdk:
+    path: /Users/andreym/Projects/python-sdk
+    graph: /Users/andreym/Projects/python-sdk/.index/graph_v2.json
+    tests: tests/fixtures/search_tests_python_sdk.yaml
+    optional: true
+    description: "MCP Python SDK - 300 Python files, 3K entities"
+
+  gemini_cli:
+    path: /Users/andreym/Projects/gemini-cli
+    graph: /Users/andreym/Projects/gemini-cli/.index/graph_v2.json
+    tests: tests/fixtures/search_tests_gemini_cli.yaml
+    optional: true
+    description: "Gemini CLI - 1,200 TypeScript files, 10K entities"
+
+  helm:
+    path: /Users/andreym/Projects/helm
+    graph: /Users/andreym/Projects/helm/.index/graph_v2.json
+    tests: tests/fixtures/search_tests_helm.yaml
+    optional: true
+    description: "Helm - 1,700 Go files, 4K entities"
+
+# Precision thresholds by query category
+precision_thresholds:
+  domain: 0.70        # Domain-specific queries (e.g., "error handling", "API client")
+  language_feature: 0.40  # Language construct queries (e.g., "async functions", "decorators")
+  filtered: 0.55      # Queries describing filtered results (semantic only, no actual filtering)
+  generic: 0.30       # Vague queries (e.g., "utility functions")
+
+# Test execution settings
+settings:
+  # Default result limit for search queries
+  default_limit: 10
+
+  # Timeout for indexing large repositories (seconds)
+  indexing_timeout: 600
+
+  # Skip slow tests by default (real repos)
+  skip_real_repos_by_default: false
+
+  # Log detailed results for failed tests
+  verbose_failures: true
+
+# Category descriptions for documentation
+category_descriptions:
+  domain:
+    name: "Domain-specific"
+    description: "Queries using technical terms or domain jargon"
+    expected_range: [0.70, 1.00]
+    examples:
+      - "error handling classes"
+      - "HTTP request handlers"
+      - "validation logic"
+
+  language_feature:
+    name: "Language features"
+    description: "Queries for language constructs (async, decorators, types)"
+    expected_range: [0.30, 0.60]
+    recommendation: "Use metadata filtering instead of semantic search"
+    examples:
+      - "async functions"
+      - "decorated methods"
+      - "dataclass models"
+
+  filtered:
+    name: "Filtered queries"
+    description: "Queries with explicit kind/subtype filters"
+    expected_range: [0.85, 1.00]
+    recommendation: "Combine semantic search with metadata filters"
+    examples:
+      - "class definitions (kind:type)"
+      - "constructors (kind:constructor)"
+
+  generic:
+    name: "Generic queries"
+    description: "Vague queries without specific terms"
+    expected_range: [0.10, 0.40]
+    recommendation: "Avoid - refine with specific domain terms"
+    examples:
+      - "utility functions"
+      - "helper methods"

@@ -1,0 +1,52 @@
+# Expected results for Express.js (lib/) - JavaScript
+# Repository: expressjs/express @ v4.18.2
+
+repo: expressjs/express
+version: "4.18.2"
+language: javascript
+subdir: lib
+
+# Minimum entity counts
+min_counts:
+  files: 10
+  containers: 5   # Few classes in Express core
+  callables: 100  # Many functions
+  data: 30        # Module exports, constants
+
+# Key entities that MUST be found
+required_entities:
+  # Core application
+  - name: Application
+    type: Callable
+    kind: function
+
+  - name: Router
+    type: Callable
+    kind: function
+
+  # Request/Response methods
+  - name: send
+    type: Callable
+    kind: method
+
+  - name: json
+    type: Callable
+    kind: method
+
+  - name: render
+    type: Callable
+    kind: method
+
+  # Routing
+  - name: route
+    type: Callable
+    kind: method
+
+  - name: use
+    type: Callable
+    kind: method
+
+  # Utils
+  - name: compile
+    type: Callable
+    kind: function

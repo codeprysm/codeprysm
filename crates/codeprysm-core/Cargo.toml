@@ -1,0 +1,80 @@
+[package]
+name = "codeprysm-core"
+description = "Code graph generation using Tree-sitter AST parsing"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["code-analysis", "tree-sitter", "ast", "code-graph", "parsing"]
+categories = ["development-tools", "parsing"]
+
+[dependencies]
+# AST Parsing
+tree-sitter.workspace = true
+tree-sitter-python.workspace = true
+tree-sitter-javascript.workspace = true
+tree-sitter-typescript.workspace = true
+tree-sitter-rust.workspace = true
+tree-sitter-go.workspace = true
+tree-sitter-c.workspace = true
+tree-sitter-cpp.workspace = true
+tree-sitter-c-sharp.workspace = true
+
+# Manifest parsing
+tree-sitter-json.workspace = true
+tree-sitter-toml-ng.workspace = true
+tree-sitter-gomod-orchard.workspace = true
+tree-sitter-xml.workspace = true
+tree-sitter-cmake.workspace = true
+
+# Graph
+petgraph.workspace = true
+
+# SQLite (lazy loading)
+rusqlite.workspace = true
+
+# Caching (lazy loading)
+lru.workspace = true
+
+# Parallelism
+rayon.workspace = true
+
+# Concurrency (interior mutability)
+parking_lot = "0.12"
+dashmap = "5.5"
+
+# Hashing
+sha2.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# CLI
+clap.workspace = true
+
+# File walking
+walkdir.workspace = true
+ignore.workspace = true
+glob = "0.3"
+globset = "0.4"
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["fmt"] }
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = "1"
+serde_yaml = "0.9"
+
+[[bin]]
+name = "codeprysm-core"
+path = "src/main.rs"

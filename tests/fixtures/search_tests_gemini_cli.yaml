@@ -1,0 +1,167 @@
+# Gemini CLI Search Test Cases
+# Tests against google-gemini/gemini-cli repository
+# TypeScript/JavaScript CLI with ~1,200 files, 10K entities
+
+queries:
+  # Domain queries (15) - Gemini CLI specific
+  - query: "tool execution"
+    must_include:
+      - {name: "execute"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "shell commands"
+    must_include:
+      - {name: "Shell"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "file operations"
+    must_include:
+      - {name: "File"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "grep search"
+    must_include:
+      - {name: "Grep"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "glob patterns"
+    must_include:
+      - {name: "Glob"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "edit operations"
+    must_include:
+      - {name: "Edit"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "MCP client"
+    must_include:
+      - {name: "MCP"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "web fetch"
+    must_include:
+      - {name: "WebFetch"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "web search"
+    must_include:
+      - {name: "WebSearch"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "message handling"
+    must_include:
+      - {name: "Message"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "error handling"
+    must_include:
+      - {name: "Error"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "configuration management"
+    must_include:
+      - {name: "Config"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "tool registry"
+    must_include:
+      - {name: "Registry"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "memory operations"
+    must_include:
+      - {name: "memory"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "logger implementation"
+    must_include:
+      - {name: "Logger"}
+    min_precision: 0.7
+    category: domain
+
+  # Language feature queries (5)
+  - query: "async functions"
+    must_include:
+      - {name: "async"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "class constructors"
+    must_include:
+      - {name: "constructor"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "interface definitions"
+    must_include:
+      - {name: "interface"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "type definitions"
+    must_include:
+      - {name: "type"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "arrow functions"
+    must_include:
+      - {name: "function"}
+    min_precision: 0.3
+    category: language_feature
+
+  # Filtered queries (5)
+  - query: "class definitions"
+    must_include:
+      - {name: "Tool", type: "Container"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Container
+
+  - query: "all functions"
+    must_include:
+      - {name: "execute", type: "Callable"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Callable
+
+  - query: "interface types"
+    must_include:
+      - {name: "Tool", type: "Container", subtype: "interface"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      subtype: interface
+
+  - query: "module exports"
+    must_include:
+      - {name: "packages", type: "Container", kind: "module"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      kind: module
+
+  - query: "method implementations"
+    must_include:
+      - {name: "execute", type: "Callable", kind: "function"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: function

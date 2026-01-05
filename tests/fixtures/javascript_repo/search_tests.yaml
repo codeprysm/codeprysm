@@ -1,0 +1,192 @@
+# JavaScript Repository Search Test Cases
+# 25 queries: 15 domain, 5 language_feature, 5 filtered
+
+queries:
+  # Domain queries (15) - expected high precision
+  - query: "user management"
+    must_include:
+      - {name: "UserManager", type: "Container"}
+      - {name: "addUser", type: "Callable"}
+      - {name: "getUser", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "data storage"
+    must_include:
+      - {name: "DataStore", type: "Container"}
+      - {name: "set", type: "Callable"}
+      - {name: "get", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "task status tracking"
+    must_include:
+      - {name: "Task", type: "Container"}
+      - {name: "Status", type: "Container"}
+      - {name: "activate", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "person information"
+    must_include:
+      - {name: "Person", type: "Container"}
+      - {name: "Employee", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "button component"
+    must_include:
+      - {name: "Button", type: "Callable"}
+      - {name: "ButtonProps", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "counter component"
+    must_include:
+      - {name: "Counter", type: "Callable"}
+      - {name: "CounterProps", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "user list display"
+    must_include:
+      - {name: "UserList", type: "Callable"}
+      - {name: "UserListProps", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "data fetching"
+    must_include:
+      - {name: "fetchData", type: "Callable"}
+      - {name: "DataFetcher", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "user creation"
+    must_include:
+      - {name: "createUser", type: "Callable"}
+      - {name: "User", type: "Container"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "employee job information"
+    must_include:
+      - {name: "Employee", type: "Container"}
+      - {name: "getJobTitle", type: "Callable"}
+      - {name: "greet", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "array processing"
+    must_include:
+      - {name: "processArray", type: "Callable"}
+      - {name: "processValue", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "name formatting"
+    must_include:
+      - {name: "formatName", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "local storage hook"
+    must_include:
+      - {name: "useLocalStorage", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "number operations"
+    must_include:
+      - {name: "doubleNumber", type: "Callable"}
+      - {name: "sumAll", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "multiplier function"
+    must_include:
+      - {name: "createMultiplier", type: "Callable"}
+      - {name: "applyFunction", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  # Language feature queries (5) - expected lower precision
+  - query: "async operations"
+    must_include:
+      - {name: "fetchData", type: "Callable"}
+      - {name: "asyncDelay", type: "Callable"}
+      - {name: "fetchUser", type: "Callable"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "TypeScript interfaces"
+    must_include:
+      - {name: "User", type: "Container", subtype: "interface"}
+      - {name: "Repository", type: "Container", subtype: "interface"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "type aliases"
+    must_include:
+      - {name: "UserID", type: "Container", subtype: "alias"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "constructor methods"
+    must_include:
+      - {name: "constructor", type: "Callable", kind: "constructor"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "enum values"
+    must_include:
+      - {name: "Status", type: "Container", subtype: "enum"}
+      - {name: "Active", type: "Data"}
+    min_precision: 0.4
+    category: language_feature
+
+  # Filtered queries (5) - expected high precision
+  - query: "class definitions"
+    must_include:
+      - {name: "UserManager", type: "Container", kind: "type"}
+      - {name: "DataStore", type: "Container", kind: "type"}
+      - {name: "Person", type: "Container", kind: "type"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: type
+
+  - query: "function implementations"
+    must_include:
+      - {name: "Button", type: "Callable", kind: "function"}
+      - {name: "Counter", type: "Callable", kind: "function"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: function
+
+  - query: "interface types"
+    must_include:
+      - {name: "User", type: "Container", subtype: "interface"}
+      - {name: "Repository", type: "Container", subtype: "interface"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: interface
+
+  - query: "enum definitions"
+    must_include:
+      - {name: "Status", type: "Container", subtype: "enum"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: enum
+
+  - query: "method implementations"
+    must_include:
+      - {name: "addUser", type: "Callable", kind: "method"}
+      - {name: "getUser", type: "Callable", kind: "method"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: method

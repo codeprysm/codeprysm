@@ -1,0 +1,70 @@
+# Expected results for Serde (serde/src/) - Rust
+# Repository: serde-rs/serde @ v1.0.228
+
+repo: serde-rs/serde
+version: "1.0.228"
+language: rust
+subdir: serde/src
+
+# Minimum entity counts
+min_counts:
+  files: 10
+  containers: 30   # Structs, traits, enums
+  callables: 100   # Functions, methods
+  data: 50         # Fields, constants
+
+# Key entities that MUST be found
+required_entities:
+  # Core traits
+  - name: Serialize
+    type: Container
+    kind: type
+
+  - name: Deserialize
+    type: Container
+    kind: type
+
+  - name: Serializer
+    type: Container
+    kind: type
+
+  - name: Deserializer
+    type: Container
+    kind: type
+
+  # Visitor trait
+  - name: Visitor
+    type: Container
+    kind: type
+
+  # Error types
+  - name: Error
+    type: Container
+    kind: type
+
+  # Key methods
+  - name: serialize
+    type: Callable
+    kind: method
+
+  - name: deserialize
+    type: Callable
+    kind: method
+
+  # De module types
+  - name: MapAccess
+    type: Container
+    kind: type
+
+  - name: SeqAccess
+    type: Container
+    kind: type
+
+  # Ser module types
+  - name: SerializeSeq
+    type: Container
+    kind: type
+
+  - name: SerializeMap
+    type: Container
+    kind: type

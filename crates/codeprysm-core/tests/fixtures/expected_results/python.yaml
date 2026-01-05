@@ -1,0 +1,63 @@
+# Expected results for Flask (src/flask) - Python
+# Repository: pallets/flask @ v3.0.0
+
+repo: pallets/flask
+version: "3.0.0"
+language: python
+subdir: src/flask
+
+# Minimum entity counts (with 10% tolerance for minor parser differences)
+min_counts:
+  files: 15
+  containers: 30  # Classes
+  callables: 150  # Functions/methods
+  data: 50        # Fields/constants
+
+# Key entities that MUST be found (golden entities)
+# These are stable public APIs that should always be detected
+required_entities:
+  # Core Flask class
+  - name: Flask
+    type: Container
+    kind: type
+
+  # Blueprint class
+  - name: Blueprint
+    type: Container
+    kind: type
+
+  # Request context
+  - name: Request
+    type: Container
+    kind: type
+
+  # Response class
+  - name: Response
+    type: Container
+    kind: type
+
+  # Core functions
+  - name: make_response
+    type: Callable
+    kind: function
+
+  - name: render_template
+    type: Callable
+    kind: function
+
+  - name: redirect
+    type: Callable
+    kind: function
+
+  - name: url_for
+    type: Callable
+    kind: function
+
+# Optional: Containment relationships to verify
+containment:
+  - parent: Flask
+    child: __init__
+  - parent: Flask
+    child: route
+  - parent: Blueprint
+    child: route

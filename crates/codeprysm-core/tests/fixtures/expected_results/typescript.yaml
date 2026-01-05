@@ -1,0 +1,58 @@
+# Expected results for TypeORM (src/entity-manager/) - TypeScript
+# Repository: typeorm/typeorm @ v0.3.28
+
+repo: typeorm/typeorm
+version: "0.3.28"
+language: typescript
+subdir: src/entity-manager
+
+# Minimum entity counts
+min_counts:
+  files: 3
+  containers: 10  # Classes, interfaces
+  callables: 50   # Methods
+  data: 20        # Fields, properties
+
+# Key entities that MUST be found
+required_entities:
+  # Core EntityManager class
+  - name: EntityManager
+    type: Container
+    kind: type
+
+  # Key methods
+  - name: find
+    type: Callable
+    kind: method
+
+  - name: findOne
+    type: Callable
+    kind: method
+
+  - name: save
+    type: Callable
+    kind: method
+
+  - name: remove
+    type: Callable
+    kind: method
+
+  - name: insert
+    type: Callable
+    kind: method
+
+  - name: update
+    type: Callable
+    kind: method
+
+  - name: delete
+    type: Callable
+    kind: method
+
+  - name: query
+    type: Callable
+    kind: method
+
+  - name: transaction
+    type: Callable
+    kind: method

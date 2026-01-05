@@ -1,0 +1,9 @@
+[package]
+name = "myapp-cli"
+version.workspace = true
+edition.workspace = true
+
+[dependencies]
+myapp-core = { path = "../core" }
+myapp-utils = { path = "../utils" }
+clap = { version = "4.0", features = ["derive"] }

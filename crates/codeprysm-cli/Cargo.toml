@@ -1,0 +1,67 @@
+[package]
+name = "codeprysm-cli"
+description = "CLI for CodePrism code analysis and search"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["cli", "code-analysis", "semantic-search", "mcp", "tree-sitter"]
+categories = ["command-line-utilities", "development-tools"]
+
+[features]
+default = []
+metal = ["codeprysm-search/metal", "codeprysm-backend/metal", "codeprysm-mcp/metal"]
+cuda = ["codeprysm-search/cuda", "codeprysm-backend/cuda", "codeprysm-mcp/cuda"]
+
+[dependencies]
+# Internal crates
+codeprysm-core.workspace = true
+codeprysm-search.workspace = true
+codeprysm-mcp.workspace = true
+codeprysm-config.workspace = true
+codeprysm-backend.workspace = true
+
+# Async
+tokio.workspace = true
+
+# MCP (for mcp command)
+rmcp.workspace = true
+
+# CLI
+clap.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+# File walking (for affected command)
+walkdir.workspace = true
+
+# Pattern matching (for glob patterns)
+regex.workspace = true
+
+# Progress bars
+indicatif.workspace = true
+
+# SQLite (for schema version checking)
+rusqlite.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+assert_cmd = "2"
+predicates = "3"
+
+[[bin]]
+name = "codeprysm"
+path = "src/main.rs"

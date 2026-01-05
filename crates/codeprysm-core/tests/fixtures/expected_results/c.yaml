@@ -1,0 +1,65 @@
+# Expected results for hiredis - C
+# Repository: redis/hiredis @ v1.3.0
+
+repo: redis/hiredis
+version: "1.3.0"
+language: c
+subdir: null  # Entire repo
+
+# Minimum entity counts
+min_counts:
+  files: 10
+  containers: 15  # Structs
+  callables: 80   # Functions
+  data: 40        # Fields, constants
+
+# Key entities that MUST be found
+required_entities:
+  # Core context struct
+  - name: redisContext
+    type: Container
+    kind: type
+
+  # Reply struct
+  - name: redisReply
+    type: Container
+    kind: type
+
+  # Async context
+  - name: redisAsyncContext
+    type: Container
+    kind: type
+
+  # Core functions
+  - name: redisConnect
+    type: Callable
+    kind: function
+
+  - name: redisCommand
+    type: Callable
+    kind: function
+
+  - name: redisFree
+    type: Callable
+    kind: function
+
+  - name: redisAppendCommand
+    type: Callable
+    kind: function
+
+  - name: redisGetReply
+    type: Callable
+    kind: function
+
+  # Async functions
+  - name: redisAsyncConnect
+    type: Callable
+    kind: function
+
+  - name: redisAsyncCommand
+    type: Callable
+    kind: function
+
+  - name: redisAsyncFree
+    type: Callable
+    kind: function

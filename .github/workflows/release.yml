@@ -1,0 +1,89 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+env:
+  CARGO_TERM_COLOR: always
+
+permissions:
+  contents: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          generate_release_notes: true
+          body: |
+            ## Installation
+
+            ```bash
+            cargo install codeprysm-cli
+            ```
+
+            ## Crates
+
+            - [codeprysm-cli](https://crates.io/crates/codeprysm-cli) - Command-line interface
+            - [codeprysm-core](https://crates.io/crates/codeprysm-core) - Graph generation
+            - [codeprysm-search](https://crates.io/crates/codeprysm-search) - Semantic search
+            - [codeprysm-mcp](https://crates.io/crates/codeprysm-mcp) - MCP server
+            - [codeprysm-config](https://crates.io/crates/codeprysm-config) - Configuration
+            - [codeprysm-backend](https://crates.io/crates/codeprysm-backend) - Backend abstraction
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  publish-crates:
+    name: Publish to crates.io
+    runs-on: ubuntu-latest
+    needs: create-release
+    if: ${{ vars.PUBLISH_TO_CRATES_IO == 'true' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+          key: ${{ runner.os }}-cargo-publish-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Publish crates to crates.io
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: |
+          echo "Publishing codeprysm-config..."
+          cargo publish -p codeprysm-config --no-verify
+          sleep 60
+
+          echo "Publishing codeprysm-core..."
+          cargo publish -p codeprysm-core --no-verify
+          sleep 60
+
+          echo "Publishing codeprysm-search..."
+          cargo publish -p codeprysm-search --no-verify
+          sleep 60
+
+          echo "Publishing codeprysm-backend..."
+          cargo publish -p codeprysm-backend --no-verify
+          sleep 60
+
+          echo "Publishing codeprysm-mcp..."
+          cargo publish -p codeprysm-mcp --no-verify
+          sleep 60
+
+          echo "Publishing codeprysm-cli..."
+          cargo publish -p codeprysm-cli --no-verify
+
+          echo "All crates published successfully!"

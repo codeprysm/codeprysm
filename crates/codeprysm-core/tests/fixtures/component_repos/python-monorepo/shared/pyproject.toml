@@ -1,0 +1,14 @@
+[project]
+name = "myapp-shared"
+version = "1.0.0"
+dependencies = [
+    "pydantic>=2.0",
+]
+
+[tool.poetry]
+name = "myapp-shared"
+version = "1.0.0"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+pydantic = "^2.0"

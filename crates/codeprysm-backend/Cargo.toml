@@ -1,0 +1,48 @@
+[package]
+name = "codeprysm-backend"
+description = "Backend abstraction layer for CodePrism"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["backend", "code-analysis", "abstraction", "api"]
+categories = ["development-tools"]
+
+[dependencies]
+# Async
+tokio.workspace = true
+async-trait = "0.1"
+futures = "0.3"
+
+# Internal crates
+codeprysm-core.workspace = true
+codeprysm-search.workspace = true
+codeprysm-config.workspace = true
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Pattern matching
+regex.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = "1"
+tokio-test = "0.4"
+
+[features]
+default = []
+# GPU acceleration features (passed through to codeprysm-search)
+metal = ["codeprysm-search/metal"]
+cuda = ["codeprysm-search/cuda"]

@@ -1,0 +1,347 @@
+# Azure-Compute-AZSM Search Test Cases
+# 50 queries: 30 domain, 10 language_feature, 10 filtered
+# Tests against real production C# repository with 2,800 files, 28K entities
+
+queries:
+  # Domain queries (30) - Azure Compute specific
+  - query: "tenant management operations"
+    must_include:
+      - {name: "Tenant"}
+      - {name: "TenantManager"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "container orchestration"
+    must_include:
+      - {name: "Container"}
+      - {name: "ContainerManager"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "validation logic"
+    must_include:
+      - {name: "Validate"}
+      - {name: "Validator"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "serialization code"
+    must_include:
+      - {name: "Serialize"}
+      - {name: "Deserialize"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "exception handling"
+    must_include:
+      - {name: "Exception"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "client factory pattern"
+    must_include:
+      - {name: "Factory"}
+      - {name: "Client"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "goal state management"
+    must_include:
+      - {name: "GoalState"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "partition handling"
+    must_include:
+      - {name: "Partition"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "role instance management"
+    must_include:
+      - {name: "RoleInstance"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "migration operations"
+    must_include:
+      - {name: "Migration"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "oracle service"
+    must_include:
+      - {name: "Oracle"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "kafka messaging"
+    must_include:
+      - {name: "Kafka"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "HTTP request handling"
+    must_include:
+      - {name: "Request"}
+      - {name: "Http"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "configuration settings"
+    must_include:
+      - {name: "Config"}
+      - {name: "Settings"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "logging operations"
+    must_include:
+      - {name: "Log"}
+      - {name: "Logger"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "cache implementation"
+    must_include:
+      - {name: "Cache"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "lifecycle management"
+    must_include:
+      - {name: "Lifecycle"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "allocation operations"
+    must_include:
+      - {name: "Allocat"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "capacity reservation"
+    must_include:
+      - {name: "Capacity"}
+      - {name: "Reservation"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "bond serialization"
+    must_include:
+      - {name: "Bond"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "service instance"
+    must_include:
+      - {name: "ServiceInstance"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "physical container"
+    must_include:
+      - {name: "PhysicalContainer"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "logical container"
+    must_include:
+      - {name: "LogicalContainer"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "gatekeeper service"
+    must_include:
+      - {name: "Gatekeeper"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "moniker handling"
+    must_include:
+      - {name: "Moniker"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "fault injection"
+    must_include:
+      - {name: "Fault"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "test utilities"
+    must_include:
+      - {name: "Test"}
+      - {name: "Mock"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "helper functions"
+    must_include:
+      - {name: "Helper"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "extension methods"
+    must_include:
+      - {name: "Extension"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "primary node handling"
+    must_include:
+      - {name: "Primary"}
+    min_precision: 0.7
+    category: domain
+
+  # Language feature queries (10)
+  - query: "async methods"
+    must_include:
+      - {name: "Async"}
+    min_precision: 0.4
+    category: language_feature
+    notes: "Async methods indicated by name convention or metadata"
+
+  - query: "interface contracts"
+    must_include:
+      - {name: "I", type: "Container", subtype: "interface"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "struct value types"
+    must_include:
+      - {name: "Options", subtype: "struct"}
+      - {name: "Result", subtype: "struct"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "enum definitions"
+    must_include:
+      - {name: "State", subtype: "enum"}
+      - {name: "Category", subtype: "enum"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "constructor methods"
+    must_include:
+      - {name: "Manager", kind: "function"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "attribute decorated classes"
+    must_include:
+      - {name: "Cmdlet"}
+    min_precision: 0.3
+    category: language_feature
+    notes: "Classes with [Cmdlet] or [Parameter] attributes"
+
+  - query: "generic types"
+    must_include:
+      - {name: "List"}
+      - {name: "Dictionary"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "partial classes"
+    must_include:
+      - {name: "partial"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "static methods"
+    must_include:
+      - {name: "static"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "abstract classes"
+    must_include:
+      - {name: "Base"}
+    min_precision: 0.4
+    category: language_feature
+
+  # Filtered queries (10)
+  - query: "class definitions"
+    must_include:
+      - {name: "Manager", type: "Container", kind: "type", subtype: "class"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: type
+      subtype: class
+
+  - query: "interface definitions"
+    must_include:
+      - {name: "ITenant", type: "Container", subtype: "interface"}
+      - {name: "IContainer", type: "Container", subtype: "interface"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: interface
+
+  - query: "struct definitions"
+    must_include:
+      - {name: "Options", type: "Container", subtype: "struct"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: struct
+
+  - query: "enum definitions"
+    must_include:
+      - {name: "State", type: "Container", subtype: "enum"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: enum
+
+  - query: "function implementations"
+    must_include:
+      - {name: "Process", type: "Callable", kind: "function"}
+      - {name: "Execute", type: "Callable", kind: "function"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: function
+
+  - query: "all containers"
+    must_include:
+      - {name: "Tenant", type: "Container"}
+      - {name: "Container", type: "Container"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Container
+
+  - query: "all callables"
+    must_include:
+      - {name: "Process", type: "Callable"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Callable
+
+  - query: "namespace containers"
+    must_include:
+      - {name: "Microsoft", type: "Container", kind: "module"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: module
+
+  - query: "field definitions"
+    must_include:
+      - {name: "Name", type: "Data", kind: "field"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: field
+
+  - query: "constant values"
+    must_include:
+      - {name: "MAX", type: "Data", kind: "constant"}
+      - {name: "DEFAULT", type: "Data", kind: "constant"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: constant

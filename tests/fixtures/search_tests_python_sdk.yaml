@@ -1,0 +1,176 @@
+# MCP Python SDK Search Test Cases
+# Tests against modelcontextprotocol/python-sdk repository
+# Python MCP SDK with ~300 files, 3K entities
+
+queries:
+  # Domain queries (15) - MCP SDK specific
+  - query: "server implementation"
+    must_include:
+      - {name: "Server"}
+      - {name: "FastMCP"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "client connection"
+    must_include:
+      - {name: "Client"}
+      - {name: "connect"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "tool execution"
+    must_include:
+      - {name: "Tool"}
+      - {name: "call_tool"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "prompt handling"
+    must_include:
+      - {name: "Prompt"}
+      - {name: "get_prompt"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "resource management"
+    must_include:
+      - {name: "Resource"}
+      - {name: "read_resource"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "session management"
+    must_include:
+      - {name: "Session"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "transport layer"
+    must_include:
+      - {name: "Transport"}
+      - {name: "stdio"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "message types"
+    must_include:
+      - {name: "Message"}
+      - {name: "Request"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "authentication"
+    must_include:
+      - {name: "Auth"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "error handling"
+    must_include:
+      - {name: "Error"}
+      - {name: "Exception"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "context management"
+    must_include:
+      - {name: "Context"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "completion handling"
+    must_include:
+      - {name: "complete"}
+      - {name: "Completion"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "notification system"
+    must_include:
+      - {name: "notification"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "progress reporting"
+    must_include:
+      - {name: "Progress"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "lifespan management"
+    must_include:
+      - {name: "lifespan"}
+    min_precision: 0.7
+    category: domain
+
+  # Language feature queries (5)
+  - query: "async methods"
+    must_include:
+      - {name: "async"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "decorated functions"
+    must_include:
+      - {name: "decorator"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "dataclass models"
+    must_include:
+      - {name: "dataclass"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "type annotations"
+    must_include:
+      - {name: "Type"}
+    min_precision: 0.3
+    category: language_feature
+
+  - query: "context managers"
+    must_include:
+      - {name: "context"}
+    min_precision: 0.3
+    category: language_feature
+
+  # Filtered queries (5)
+  - query: "class definitions"
+    must_include:
+      - {name: "Server", type: "Container"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Container
+
+  - query: "all functions"
+    must_include:
+      - {name: "call_tool", type: "Callable"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      type: Callable
+
+  - query: "module namespaces"
+    must_include:
+      - {name: "mcp", type: "Container", kind: "module"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: module
+
+  - query: "function parameters"
+    must_include:
+      - {name: "name", type: "Data"}
+    min_precision: 0.7
+    category: filtered
+    filters:
+      type: Data
+
+  - query: "method implementations"
+    must_include:
+      - {name: "run", type: "Callable", kind: "function"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: function

@@ -1,0 +1,11 @@
+{
+  "name": "@myapp/api",
+  "version": "1.0.0",
+  "dependencies": {
+    "@myapp/shared": "workspace:*",
+    "express": "^4.18.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0"
+  }
+}

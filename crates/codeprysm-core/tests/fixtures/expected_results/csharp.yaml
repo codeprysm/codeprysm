@@ -1,0 +1,70 @@
+# Expected results for Newtonsoft.Json (Src/Newtonsoft.Json/) - C#
+# Repository: JamesNK/Newtonsoft.Json @ v13.0.4
+
+repo: JamesNK/Newtonsoft.Json
+version: "13.0.4"
+language: csharp
+subdir: Src/Newtonsoft.Json
+
+# Minimum entity counts
+min_counts:
+  files: 50
+  containers: 100  # Classes, interfaces, enums
+  callables: 400   # Methods
+  data: 200        # Fields, properties
+
+# Key entities that MUST be found
+required_entities:
+  # Main namespace
+  - name: Newtonsoft
+    type: Container
+    kind: namespace
+
+  # Core JsonConvert class
+  - name: JsonConvert
+    type: Container
+    kind: type
+
+  # JsonSerializer class
+  - name: JsonSerializer
+    type: Container
+    kind: type
+
+  # JsonReader/JsonWriter base classes
+  - name: JsonReader
+    type: Container
+    kind: type
+
+  - name: JsonWriter
+    type: Container
+    kind: type
+
+  - name: JsonTextReader
+    type: Container
+    kind: type
+
+  - name: JsonTextWriter
+    type: Container
+    kind: type
+
+  # Key methods
+  - name: SerializeObject
+    type: Callable
+    kind: method
+
+  - name: DeserializeObject
+    type: Callable
+    kind: method
+
+  - name: Read
+    type: Callable
+    kind: method
+
+  - name: Write
+    type: Callable
+    kind: method
+
+  # Tokens enum
+  - name: JsonToken
+    type: Container
+    kind: type

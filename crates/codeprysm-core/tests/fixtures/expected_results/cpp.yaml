@@ -1,0 +1,64 @@
+# Expected results for nlohmann/json (include/nlohmann/) - C++
+# Repository: nlohmann/json @ v3.11.3
+
+repo: nlohmann/json
+version: "3.11.3"
+language: cpp
+subdir: include/nlohmann
+
+# Minimum entity counts
+min_counts:
+  files: 5
+  containers: 20   # Classes, namespaces
+  callables: 200   # Methods, functions (template heavy)
+  data: 50         # Fields, constants
+
+# Key entities that MUST be found
+required_entities:
+  # Main namespace
+  - name: nlohmann
+    type: Container
+    kind: namespace
+
+  # Core json class (basic_json is the template)
+  - name: basic_json
+    type: Container
+    kind: type
+
+  # JSON pointer class
+  - name: json_pointer
+    type: Container
+    kind: type
+
+  # Key methods
+  - name: parse
+    type: Callable
+    kind: method
+
+  - name: dump
+    type: Callable
+    kind: method
+
+  - name: at
+    type: Callable
+    kind: method
+
+  - name: push_back
+    type: Callable
+    kind: method
+
+  - name: is_null
+    type: Callable
+    kind: method
+
+  - name: is_object
+    type: Callable
+    kind: method
+
+  - name: is_array
+    type: Callable
+    kind: method
+
+  - name: is_string
+    type: Callable
+    kind: method

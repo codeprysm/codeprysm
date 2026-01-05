@@ -1,0 +1,185 @@
+# C# Repository Search Test Cases
+# 25 queries: 15 domain, 5 language_feature, 5 filtered
+
+queries:
+  # Domain queries (15) - expected high precision
+  - query: "person repository"
+    must_include:
+      - {name: "PersonRepository", type: "Container", subtype: "class"}
+      - {name: "Person", type: "Callable", kind: "constructor"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "point geometry"
+    must_include:
+      - {name: "Point", type: "Container", subtype: "struct"}
+      - {name: "X", type: "Data"}
+      - {name: "Y", type: "Data"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "rectangle shape"
+    must_include:
+      - {name: "Rectangle", type: "Container", subtype: "struct"}
+      - {name: "Width", type: "Data"}
+      - {name: "Height", type: "Data"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "status values"
+    must_include:
+      - {name: "Status", type: "Container", subtype: "enum"}
+      - {name: "Pending", type: "Data"}
+      - {name: "Active", type: "Data"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "data storage operations"
+    must_include:
+      - {name: "DataStore", type: "Container"}
+      - {name: "Set", type: "Callable"}
+      - {name: "Get", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "string extensions"
+    must_include:
+      - {name: "StringExtensions", type: "Container"}
+      - {name: "Capitalize", type: "Callable"}
+      - {name: "IsEmail", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "repository interface"
+    must_include:
+      - {name: "IRepository", type: "Container", subtype: "interface"}
+      - {name: "GetById", type: "Callable"}
+      - {name: "Add", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "greeting methods"
+    must_include:
+      - {name: "Greet", type: "Callable"}
+      - {name: "GreetAsync", type: "Callable"}
+    min_precision: 0.7
+    category: domain
+
+  - query: "distance calculation"
+    must_include:
+      - {name: "DistanceTo", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "area property"
+    must_include:
+      - {name: "Area", type: "Data"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "delete operations"
+    must_include:
+      - {name: "Delete", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "get all items"
+    must_include:
+      - {name: "GetAll", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "adult filtering"
+    must_include:
+      - {name: "GetAdults", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "contains check"
+    must_include:
+      - {name: "Contains", type: "Callable"}
+    min_precision: 0.5
+    category: domain
+
+  - query: "main entry point"
+    must_include:
+      - {name: "Main", type: "Callable"}
+      - {name: "Program", type: "Container"}
+    min_precision: 0.5
+    category: domain
+
+  # Language feature queries (5) - expected lower precision
+  - query: "struct definitions"
+    must_include:
+      - {name: "Point", type: "Container", subtype: "struct"}
+      - {name: "Rectangle", type: "Container", subtype: "struct"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "enum declarations"
+    must_include:
+      - {name: "Status", type: "Container", subtype: "enum"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "constructor methods"
+    must_include:
+      - {name: "Person", type: "Callable", kind: "constructor"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "async methods"
+    must_include:
+      - {name: "GreetAsync", type: "Callable"}
+    min_precision: 0.4
+    category: language_feature
+
+  - query: "interface implementations"
+    must_include:
+      - {name: "IRepository", type: "Container", subtype: "interface"}
+    min_precision: 0.4
+    category: language_feature
+
+  # Filtered queries (5) - expected high precision
+  - query: "class types"
+    must_include:
+      - {name: "PersonRepository", type: "Container", subtype: "class"}
+      - {name: "DataStore", type: "Container", subtype: "class"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: class
+
+  - query: "struct types"
+    must_include:
+      - {name: "Point", type: "Container", subtype: "struct"}
+      - {name: "Rectangle", type: "Container", subtype: "struct"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: struct
+
+  - query: "enum types"
+    must_include:
+      - {name: "Status", type: "Container", subtype: "enum"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: enum
+
+  - query: "interface types"
+    must_include:
+      - {name: "IRepository", type: "Container", subtype: "interface"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      subtype: interface
+
+  - query: "method implementations"
+    must_include:
+      - {name: "GetById", type: "Callable", kind: "method"}
+      - {name: "Set", type: "Callable", kind: "method"}
+    min_precision: 0.85
+    category: filtered
+    filters:
+      kind: method

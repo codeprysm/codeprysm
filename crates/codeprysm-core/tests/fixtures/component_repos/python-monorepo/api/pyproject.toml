@@ -1,0 +1,15 @@
+[project]
+name = "myapp-api"
+version = "1.0.0"
+dependencies = [
+    "fastapi>=0.100.0",
+]
+
+[tool.poetry]
+name = "myapp-api"
+version = "1.0.0"
+
+[tool.poetry.dependencies]
+python = "^3.11"
+fastapi = "^0.100.0"
+myapp-shared = { path = "../shared", develop = true }

@@ -1,0 +1,33 @@
+[package]
+name = "codeprysm-config"
+description = "Configuration loading for CodePrism"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["config", "configuration", "toml", "settings"]
+categories = ["config", "development-tools"]
+
+[dependencies]
+# Config parsing
+toml.workspace = true
+
+# Home directory detection
+dirs = "6.0"
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+
+# Logging
+tracing.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+pretty_assertions = "1"

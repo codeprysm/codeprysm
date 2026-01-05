@@ -1,0 +1,71 @@
+[package]
+name = "codeprysm-search"
+description = "Semantic code search with vector embeddings and Qdrant"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+rust-version.workspace = true
+readme = "README.md"
+keywords = ["semantic-search", "vector-search", "embeddings", "qdrant", "code-search"]
+categories = ["development-tools", "science"]
+
+[features]
+default = []
+metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
+cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
+rate-limit = ["dep:governor"]
+
+[dependencies]
+# Core
+codeprysm-core.workspace = true
+
+# Vector DB
+qdrant-client.workspace = true
+
+# Embeddings (Candle ecosystem)
+candle-core.workspace = true
+candle-nn.workspace = true
+candle-transformers.workspace = true
+hf-hub.workspace = true
+tokenizers.workspace = true
+
+# Async
+tokio.workspace = true
+async-trait.workspace = true
+
+# HTTP Client (for remote providers)
+reqwest.workspace = true
+
+# Rate limiting (optional, for remote providers)
+governor = { workspace = true, optional = true }
+
+# Serialization
+serde.workspace = true
+serde_json.workspace = true
+
+# Error handling
+thiserror.workspace = true
+anyhow.workspace = true
+
+# Concurrency
+once_cell.workspace = true
+
+# Logging
+tracing.workspace = true
+
+# Regex
+regex.workspace = true
+
+# CLI
+clap.workspace = true
+tracing-subscriber.workspace = true
+
+[dev-dependencies]
+tempfile = "3"
+wiremock = "0.6"
+
+[[bin]]
+name = "codeprysm-search"
+path = "src/main.rs"

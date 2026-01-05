@@ -1,0 +1,73 @@
+# Expected results for Echo web framework - Go
+# Repository: labstack/echo @ v4.14.0
+
+repo: labstack/echo
+version: "4.14.0"
+language: go
+subdir: null  # Entire repo
+
+# Minimum entity counts
+min_counts:
+  files: 15
+  containers: 20   # Structs, interfaces
+  callables: 150   # Functions, methods
+  data: 50         # Fields, constants
+
+# Key entities that MUST be found
+required_entities:
+  # Core Echo struct
+  - name: Echo
+    type: Container
+    kind: type
+
+  # Context interface/struct
+  - name: Context
+    type: Container
+    kind: type
+
+  # Router
+  - name: Router
+    type: Container
+    kind: type
+
+  # Key methods/functions
+  - name: New
+    type: Callable
+    kind: function
+
+  - name: Start
+    type: Callable
+    kind: method
+
+  - name: GET
+    type: Callable
+    kind: method
+
+  - name: POST
+    type: Callable
+    kind: method
+
+  - name: PUT
+    type: Callable
+    kind: method
+
+  - name: DELETE
+    type: Callable
+    kind: method
+
+  - name: Use
+    type: Callable
+    kind: method
+
+  - name: Group
+    type: Callable
+    kind: method
+
+  # Middleware
+  - name: MiddlewareFunc
+    type: Container
+    kind: type
+
+  - name: HandlerFunc
+    type: Container
+    kind: type
