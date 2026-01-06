@@ -70,12 +70,10 @@ cargo build --release
 
 ```mermaid
 graph LR
-    A[Source Code] --> B[Tree-Sitter<br/>Parser]
-    B --> C[AST]
-    C --> D[Code Graph]
-    D --> E[Graph Analysis]
-    D --> F[Semantic Index]
-    F --> G[AI-Powered<br/>Search]
+    A[Source Code] --> B[Code Graph]
+    B --> C[Semantic Index]
+    C --> D[MCP Server]
+    D --> E[AI Assistants]
 ```
 
 The system operates in three main phases:
