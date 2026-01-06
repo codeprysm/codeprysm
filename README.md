@@ -40,6 +40,18 @@ cd codeprysm
 cargo build --release
 ```
 
+### GPU Acceleration (Optional)
+
+For faster embedding generation, install with GPU support:
+
+```bash
+# macOS (Apple Silicon)
+cargo install codeprysm-cli --features metal
+
+# Linux (NVIDIA GPU)
+cargo install codeprysm-cli --features cuda
+```
+
 ### Prerequisites
 
 - Docker (for Qdrant vector database)
