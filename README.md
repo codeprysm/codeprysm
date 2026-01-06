@@ -42,33 +42,28 @@ cargo build --release
 
 ### Prerequisites
 
-- Rust 1.85+
 - Docker (for Qdrant vector database)
-- [just](https://github.com/casey/just) command runner (optional, for development)
+- Rust 1.85+ (only if building from source)
 
 ## Quick Start
 
-1. **Build the project:**
+1. **Start Qdrant** (required for semantic search):
    ```bash
-   just setup
-   # or: cargo build --release
+   docker run -d --name qdrant \
+     -p 6333:6333 -p 6334:6334 \
+     -v qdrant_storage:/qdrant/storage \
+     qdrant/qdrant:latest
    ```
 
-2. **Start Qdrant** (required for semantic search):
+2. **Initialize your codebase:**
    ```bash
-   just qdrant-start
+   cd /path/to/your/repo
+   codeprysm init
    ```
 
-3. **Initialize your codebase:**
+3. **Start the MCP server** (optional, for AI assistants):
    ```bash
-   just init /path/to/your/repo
-   # or: ./target/release/codeprysm-core generate --repo /path/to/repo --output .codeprysm
-   ```
-
-4. **Start the MCP server:**
-   ```bash
-   just mcp /path/to/your/repo
-   # or: ./target/release/codeprysm mcp --root /path/to/repo
+   codeprysm mcp
    ```
 
 ## How It Works
@@ -136,6 +131,8 @@ codeprysm update --root /path/to/repo
 | Very Large | 50K-100K | 20-60 min | 16-32 GB |
 
 ## Development
+
+For development, install [just](https://github.com/casey/just) command runner:
 
 ```bash
 # Build
