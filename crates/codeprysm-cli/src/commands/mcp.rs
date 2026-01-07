@@ -11,7 +11,8 @@ use codeprysm_core::lazy::partitioner::GraphPartitioner;
 use codeprysm_mcp::{PrismServer, ServerConfig};
 use rmcp::{transport::stdio, ServiceExt};
 use tokio::signal;
-use tracing::{info, Level};
+use tracing::{info, warn, Level};
+use tracing_subscriber::util::SubscriberInitExt;
 use tracing_subscriber::FmtSubscriber;
 
 use crate::GlobalOptions;
@@ -59,6 +60,8 @@ pub async fn execute(args: McpArgs, global: GlobalOptions) -> Result<()> {
         Level::INFO
     };
 
+    // Set up tracing - use try_init() to gracefully handle the case where a global
+    // subscriber is already set (e.g., when launched by Claude Code)
     if let Some(ref log_file) = args.log_file {
         let file = std::fs::File::create(log_file)
             .with_context(|| format!("Failed to create log file: {}", log_file.display()))?;
@@ -67,8 +70,14 @@ pub async fn execute(args: McpArgs, global: GlobalOptions) -> Result<()> {
             .with_writer(file)
             .with_ansi(false)
             .finish();
-        tracing::subscriber::set_global_default(subscriber)
-            .context("Failed to set tracing subscriber")?;
+        if subscriber.try_init().is_err() {
+            // A global subscriber is already set (e.g., by Claude Code)
+            // Logs will go to the existing subscriber's destination instead of our log file
+            warn!(
+                "Note: Using existing tracing subscriber (--log-file {} ignored)",
+                log_file.display()
+            );
+        }
     } else {
         // Log to stderr (stdout is for MCP protocol)
         let subscriber = FmtSubscriber::builder()
@@ -76,8 +85,8 @@ pub async fn execute(args: McpArgs, global: GlobalOptions) -> Result<()> {
             .with_writer(std::io::stderr)
             .with_ansi(false)
             .finish();
-        tracing::subscriber::set_global_default(subscriber)
-            .context("Failed to set tracing subscriber")?;
+        // Silently use existing subscriber if one is already set
+        let _ = subscriber.try_init();
     }
 
     // Resolve paths

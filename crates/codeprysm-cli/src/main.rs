@@ -148,12 +148,16 @@ async fn main() -> Result<()> {
         Level::INFO
     };
 
-    let subscriber = FmtSubscriber::builder()
-        .with_max_level(log_level)
-        .with_writer(std::io::stderr)
-        .with_ansi(true)
-        .finish();
-    tracing::subscriber::set_global_default(subscriber)?;
+    // MCP command handles its own tracing setup (needs ansi=false for JSON-RPC protocol,
+    // and must gracefully handle pre-existing subscribers when launched by Claude Code)
+    if !matches!(cli.command, Commands::Mcp(_)) {
+        let subscriber = FmtSubscriber::builder()
+            .with_max_level(log_level)
+            .with_writer(std::io::stderr)
+            .with_ansi(true)
+            .finish();
+        tracing::subscriber::set_global_default(subscriber)?;
+    }
 
     // Execute the command
     match cli.command {
