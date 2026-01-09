@@ -16,13 +16,13 @@ pub struct SearchParams {
 
     /// Search mode to control which embedding model is used
     #[schemars(
-        description = "Search mode: 'code' for code patterns/identifiers (uses jina-base-code), 'info' for semantic/conceptual queries (uses jina-base-en). Defaults to hybrid (both, fused)."
+        description = "Search mode: 'code' for exact names/identifiers, 'info' for conceptual questions. Omit for hybrid (recommended when unsure)."
     )]
     pub mode: Option<String>,
 
     /// Filter by entity types
     #[schemars(
-        description = "Filter by entity types. Valid types: \"Container\", \"Callable\", \"Data\". Supports kind filtering with colon syntax: \"Container:type\", \"Container:file\", \"Callable:method\", \"Data:field\". Files are Container nodes with kind=\"file\"."
+        description = "Filter results by type. Examples: ['Container:file'] for files, ['Callable:method'] for methods, ['Container:type'] for classes, ['Callable', 'Data'] for functions+variables."
     )]
     pub node_types: Option<Vec<String>>,
 
@@ -138,7 +138,7 @@ pub struct FindCallChainParams {
 
     /// Direction to trace
     #[schemars(
-        description = "\"upstream\" (who calls this), \"downstream\" (what this calls), or \"both\""
+        description = "'upstream' to find entry points/callers, 'downstream' to find dependencies/impact, 'both' for full context"
     )]
     pub direction: Option<String>,
 

@@ -79,10 +79,16 @@ Add to `claude_desktop_config.json`:
 
 | Tool | Description |
 |------|-------------|
-| `search_graph_nodes` | Semantic search for code entities |
-| `get_node_details` | Get detailed information about a node |
-| `get_node_relationships` | Find related nodes (calls, references, etc.) |
-| `get_file_contents` | Read source file contents |
+| `search_graph_nodes` | Find code by name or description (semantic + code search) |
+| `get_node_info` | Get metadata about a code entity (type, file, lines) |
+| `read_code` | Read source code for a node or file range |
+| `find_references` | Find code that uses/calls this node (incoming) |
+| `find_outgoing_references` | Find what this node calls/uses (dependencies) |
+| `find_definitions` | Find entities defined inside this node |
+| `find_call_chain` | Trace execution paths (upstream/downstream) |
+| `find_module_structure` | Explore directory organization |
+| `sync_repository` | Trigger re-indexing after code changes |
+| `get_index_status` | Check indexing status and progress |
 
 ## License
 

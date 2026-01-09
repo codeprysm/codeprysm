@@ -1,7 +1,10 @@
 //! CodePrysm MCP Server implementation
 //!
-//! This module implements the MCP server using the rmcp SDK, exposing
-//! code graph navigation and semantic search capabilities.
+//! This module implements the MCP server using the rmcp SDK, exposing:
+//! - Semantic search (search_graph_nodes with code/info/hybrid modes)
+//! - Graph navigation (find_references, find_outgoing_references, find_definitions, find_call_chain)
+//! - Code viewing (get_node_info, read_code, find_module_structure)
+//! - Index management (sync_repository, get_index_status)
 
 use std::collections::{HashMap, HashSet};
 use std::fs;
@@ -510,7 +513,7 @@ impl PrismServer {
 
     #[tool(
         name = "search_graph_nodes",
-        description = "Hybrid search for code entities using semantic and code understanding. Returns matching entities with locations, relevance scores, and code snippets.\n\nSupports three search modes via the optional 'mode' parameter:\n- 'code': Uses jina-base-code embeddings, best for code identifiers, function names, patterns\n- 'info': Uses jina-base-en embeddings, best for conceptual/natural language queries\n- (default): Hybrid search fusing both collections for general queries"
+        description = "Find code entities by name or description. Returns matches with file locations, scores, and snippets.\n\nMODES:\n- 'code': For identifiers/names (e.g., 'parseConfig', 'UserService', 'handle_request')\n- 'info': For concepts (e.g., 'authentication logic', 'error handling', 'database setup')\n- default: Hybrid - use when unsure (recommended for most queries)\n\nEXAMPLES: search('UserService', mode='code'), search('how errors are handled', mode='info')"
     )]
     async fn search_graph_nodes(
         &self,
@@ -596,7 +599,7 @@ impl PrismServer {
 
     #[tool(
         name = "get_node_info",
-        description = "Get basic information about a code entity (node). Returns metadata including name, type, file location, and line numbers."
+        description = "Get metadata about a code entity: name, type, kind, file path, line numbers. Does NOT include source code - use read_code for that. Use after search to inspect a specific result."
     )]
     async fn get_node_info(
         &self,
@@ -625,7 +628,7 @@ impl PrismServer {
 
     #[tool(
         name = "read_code",
-        description = "Read code content flexibly - either a node's implementation or arbitrary file ranges. Supports context lines for surrounding code."
+        description = "Read source code for a node or file range. Use node_id to read a function/class implementation, or file_path+line_start/line_end for arbitrary ranges. Use context_lines to see surrounding code. Use max_lines to limit output (default 100)."
     )]
     async fn read_code(
         &self,
@@ -736,7 +739,7 @@ impl PrismServer {
 
     #[tool(
         name = "find_references",
-        description = "Find all code locations that reference this node (incoming dependencies). Useful for understanding what code depends on or calls this entity."
+        description = "Find code that uses/calls this node (incoming edges). For a function: returns callers. For a class: returns instantiators/importers. For a variable: returns readers. Answer: 'Who uses this?'"
     )]
     async fn find_references(
         &self,
@@ -819,7 +822,7 @@ impl PrismServer {
 
     #[tool(
         name = "find_outgoing_references",
-        description = "Find all code entities referenced by this node (outgoing dependencies). Useful for understanding what this code depends on or calls."
+        description = "Find what this node calls/uses (outgoing edges). For a function: returns called functions and read variables. For a class: returns extended types and imports. Answer: 'What does this depend on?'"
     )]
     async fn find_outgoing_references(
         &self,
@@ -906,7 +909,7 @@ impl PrismServer {
 
     #[tool(
         name = "find_definitions",
-        description = "Find all entities defined by this node (outgoing DEFINES edges). Useful for understanding what a Container or Callable defines: fields, parameters, local variables, nested types."
+        description = "Find entities defined inside this node. For a class: returns methods, fields, nested types. For a function: returns parameters and locals. For a file: returns top-level definitions. Answer: 'What does this contain?'"
     )]
     async fn find_definitions(
         &self,
@@ -978,7 +981,7 @@ impl PrismServer {
 
     #[tool(
         name = "find_call_chain",
-        description = "Trace call chains to understand execution flow and dependencies. Find who calls this code (upstream) or what this code calls (downstream)."
+        description = "Trace execution paths through the call graph. 'upstream': trace back to entry points (who eventually calls this - useful for understanding how code is reached). 'downstream': trace forward to leaves (what this eventually calls - useful for impact analysis)."
     )]
     async fn find_call_chain(
         &self,
@@ -1117,7 +1120,7 @@ impl PrismServer {
 
     #[tool(
         name = "find_module_structure",
-        description = "Analyze the hierarchical structure of a module or directory. Returns entity counts by type for understanding codebase organization."
+        description = "Explore directory organization and get entity counts by type. Useful for understanding unfamiliar codebases before diving into specific files. Returns hierarchy with file counts and node type breakdowns."
     )]
     async fn find_module_structure(
         &self,
@@ -1233,7 +1236,7 @@ impl PrismServer {
 
     #[tool(
         name = "sync_repository",
-        description = "Manually trigger repository synchronization to detect and process file changes. Updates the code graph and starts background indexing. Use get_index_status to check indexing progress."
+        description = "Trigger re-indexing after code changes. Call when search returns outdated results or after editing files. Runs in background - use get_index_status to check completion."
     )]
     async fn sync_repository(
         &self,
@@ -1307,7 +1310,7 @@ impl PrismServer {
 
     #[tool(
         name = "get_index_status",
-        description = "Get the current status of the search index. Returns indexing progress, version information, and whether a re-index is needed."
+        description = "Check indexing status and progress. Shows: idle (ready), indexing (in progress), or failed. Use after sync_repository to confirm completion. Also shows if index needs refresh."
     )]
     async fn get_index_status(
         &self,
@@ -1380,9 +1383,20 @@ impl rmcp::ServerHandler for PrismServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo {
             instructions: Some(
-                "CodePrysm MCP Server - Semantic code search and graph analysis. \
-                Use search_graph_nodes for hybrid search, get_node_info for metadata, \
-                read_code for source viewing, and find_* tools for graph navigation."
+                "CodePrysm: Code graph and semantic search for AI assistants.\n\n\
+                TOOLS:\n\
+                - search_graph_nodes: Find code by name or description (start here)\n\
+                - get_node_info: Get metadata (type, file, lines) for a node ID\n\
+                - read_code: View source code for a node or file range\n\
+                - find_references: Who calls/uses this? (incoming edges)\n\
+                - find_outgoing_references: What does this call/use? (dependencies)\n\
+                - find_definitions: What does this contain? (methods, fields)\n\
+                - find_call_chain: Trace execution paths (upstream/downstream)\n\
+                - find_module_structure: Explore directory organization\n\
+                - sync_repository / get_index_status: Keep index current\n\n\
+                NODE IDs: Format is 'file_path:entity_name' (e.g., 'src/main.rs:main', 'app/user.py:User').\n\
+                NODE TYPES: Container (files, classes, modules), Callable (functions, methods), Data (fields, variables).\n\n\
+                WORKFLOW: search_graph_nodes → get_node_info → read_code → find_references/find_outgoing_references"
                     .into(),
             ),
             capabilities: ServerCapabilities::builder().enable_tools().build(),
