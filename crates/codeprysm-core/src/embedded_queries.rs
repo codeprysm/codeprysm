@@ -61,7 +61,7 @@ pub fn get_base_query(language: SupportedLanguage) -> Option<&'static str> {
         SupportedLanguage::Python => Some(PYTHON_TAGS),
         SupportedLanguage::Rust => Some(RUST_TAGS),
         SupportedLanguage::TypeScript => Some(TYPESCRIPT_TAGS),
-        _ => None,
+        SupportedLanguage::Tsx => Some(TYPESCRIPT_TAGS), // TSX uses TypeScript queries
     }
 }
 
@@ -76,7 +76,7 @@ fn get_test_overlay(language: SupportedLanguage) -> Option<&'static str> {
         SupportedLanguage::Python => Some(PYTHON_TEST),
         SupportedLanguage::Rust => Some(RUST_TEST),
         SupportedLanguage::TypeScript => Some(TYPESCRIPT_TEST),
-        _ => None,
+        SupportedLanguage::Tsx => Some(TYPESCRIPT_TEST), // TSX uses TypeScript test overlay
     }
 }
 
@@ -96,6 +96,7 @@ pub fn supported_languages() -> &'static [SupportedLanguage] {
         SupportedLanguage::Python,
         SupportedLanguage::Rust,
         SupportedLanguage::TypeScript,
+        SupportedLanguage::Tsx,
     ]
 }
 
@@ -347,6 +348,74 @@ mod tests {
         assert!(
             result.is_ok(),
             "CMake manifest query failed to compile: {:?}",
+            result.err()
+        );
+    }
+
+    // ========================================================================
+    // TSX Query Tests
+    // ========================================================================
+
+    #[test]
+    fn test_tsx_query_returns_typescript_tags() {
+        let query = get_base_query(SupportedLanguage::Tsx);
+        assert!(query.is_some(), "TSX should have a base query");
+        assert_eq!(
+            query.unwrap(),
+            TYPESCRIPT_TAGS,
+            "TSX should use TypeScript tags"
+        );
+    }
+
+    #[test]
+    fn test_tsx_test_overlay_returns_typescript_test() {
+        let overlay = get_test_overlay(SupportedLanguage::Tsx);
+        assert!(overlay.is_some(), "TSX should have a test overlay");
+        assert_eq!(
+            overlay.unwrap(),
+            TYPESCRIPT_TEST,
+            "TSX should use TypeScript test overlay"
+        );
+    }
+
+    #[test]
+    fn test_tsx_in_supported_languages() {
+        let languages = supported_languages();
+        assert!(
+            languages.contains(&SupportedLanguage::Tsx),
+            "TSX should be in supported_languages()"
+        );
+    }
+
+    #[test]
+    fn test_tsx_has_embedded_query() {
+        assert!(
+            has_embedded_query(SupportedLanguage::Tsx),
+            "TSX should have embedded query"
+        );
+    }
+
+    #[test]
+    fn test_tsx_get_query_combines_base_and_overlay() {
+        let query = get_query(SupportedLanguage::Tsx);
+        assert!(query.is_some(), "TSX should return combined query");
+        let query_str = query.unwrap();
+        // Should contain both base and overlay content
+        assert!(
+            query_str.contains("definition"),
+            "TSX query should contain definition patterns"
+        );
+    }
+
+    #[test]
+    fn test_tsx_query_compiles_against_tsx_grammar() {
+        // This is the critical test - verify TypeScript query compiles against TSX grammar
+        let query_src = get_query(SupportedLanguage::Tsx).unwrap();
+        let lang = SupportedLanguage::Tsx.tree_sitter_language();
+        let result = Query::new(&lang, &query_src);
+        assert!(
+            result.is_ok(),
+            "TypeScript query should compile against TSX grammar: {:?}",
             result.err()
         );
     }

@@ -536,6 +536,8 @@ impl<'a> SemanticTextBuilder<'a> {
     }
 
     /// Truncate content to a maximum length, preserving word boundaries.
+    ///
+    /// Uses character-safe truncation to avoid panics on multi-byte UTF-8 content.
     fn truncate_content(&self, content: &str, max_len: usize) -> String {
         // Clean content - normalize whitespace
         let cleaned: String = content.split_whitespace().collect::<Vec<&str>>().join(" ");
@@ -543,8 +545,16 @@ impl<'a> SemanticTextBuilder<'a> {
         if cleaned.len() <= max_len {
             cleaned
         } else {
-            // Find a good break point
-            let truncated = &cleaned[..max_len];
+            // Find the last valid UTF-8 character boundary at or before max_len bytes
+            let truncate_at = find_utf8_truncation_point(&cleaned, max_len);
+
+            if truncate_at == 0 {
+                return String::new();
+            }
+
+            let truncated = &cleaned[..truncate_at];
+
+            // Find a good break point at word boundary
             if let Some(last_space) = truncated.rfind(' ') {
                 format!("{}...", &truncated[..last_space])
             } else {
@@ -552,6 +562,24 @@ impl<'a> SemanticTextBuilder<'a> {
             }
         }
     }
+}
+
+/// Find the byte index of the last complete UTF-8 character that fits within max_bytes.
+///
+/// This ensures we never slice in the middle of a multi-byte character.
+/// Returns the byte position after the last complete character that fits.
+fn find_utf8_truncation_point(s: &str, max_bytes: usize) -> usize {
+    if s.len() <= max_bytes {
+        return s.len();
+    }
+
+    // Find the last character whose END position is <= max_bytes
+    // (i.e., the character completely fits within the budget)
+    s.char_indices()
+        .take_while(|(i, c)| *i + c.len_utf8() <= max_bytes)
+        .last()
+        .map(|(i, c)| i + c.len_utf8())
+        .unwrap_or(0)
 }
 
 #[cfg(test)]
@@ -760,5 +788,172 @@ mod tests {
         // Assert the format
         assert!(result.contains(". "), "Should use period separators");
         assert!(result.contains("in file"), "Should have 'in file' prefix");
+    }
+
+    // ========================================================================
+    // UTF-8 Truncation Tests
+    // ========================================================================
+
+    #[test]
+    fn test_find_utf8_truncation_point_ascii() {
+        let s = "hello world";
+        assert_eq!(find_utf8_truncation_point(s, 5), 5);
+        assert_eq!(find_utf8_truncation_point(s, 100), 11);
+        assert_eq!(find_utf8_truncation_point(s, 0), 0);
+    }
+
+    #[test]
+    fn test_find_utf8_truncation_point_chinese() {
+        // Each Chinese character is 3 bytes in UTF-8
+        let s = "你好世界"; // 12 bytes total (4 chars * 3 bytes)
+        // char_indices: (0,'你'), (3,'好'), (6,'世'), (9,'界')
+        assert_eq!(find_utf8_truncation_point(s, 3), 3); // First char (0+3=3) fits exactly
+        assert_eq!(find_utf8_truncation_point(s, 4), 3); // 2nd char (3+3=6) doesn't fit in 4
+        assert_eq!(find_utf8_truncation_point(s, 5), 3); // 2nd char (3+3=6) doesn't fit in 5
+        assert_eq!(find_utf8_truncation_point(s, 6), 6); // 2nd char (3+3=6) fits exactly
+        assert_eq!(find_utf8_truncation_point(s, 12), 12); // All chars fit
+        assert_eq!(find_utf8_truncation_point(s, 2), 0); // Can't even fit first char (0+3=3 > 2)
+    }
+
+    #[test]
+    fn test_find_utf8_truncation_point_emoji() {
+        // Most emoji are 4 bytes in UTF-8
+        let s = "🎉🎊🎁"; // 12 bytes total (3 emoji * 4 bytes)
+        // char_indices: (0,'🎉'), (4,'🎊'), (8,'🎁')
+        assert_eq!(find_utf8_truncation_point(s, 4), 4); // First emoji (0+4=4) fits exactly
+        assert_eq!(find_utf8_truncation_point(s, 5), 4); // 2nd emoji (4+4=8) doesn't fit in 5
+        assert_eq!(find_utf8_truncation_point(s, 8), 8); // 2nd emoji (4+4=8) fits exactly
+        assert_eq!(find_utf8_truncation_point(s, 3), 0); // Can't even fit first emoji (0+4=4 > 3)
+    }
+
+    #[test]
+    fn test_find_utf8_truncation_point_mixed() {
+        let s = "hello你好"; // 5 ASCII + 6 UTF-8 = 11 bytes
+        // char_indices: (0,'h'), (1,'e'), (2,'l'), (3,'l'), (4,'o'), (5,'你'), (8,'好')
+        assert_eq!(find_utf8_truncation_point(s, 5), 5); // "hello" (last char at 4+1=5)
+        assert_eq!(find_utf8_truncation_point(s, 8), 8); // "hello你" (5+3=8 fits exactly)
+        assert_eq!(find_utf8_truncation_point(s, 7), 5); // 你 (5+3=8) doesn't fit in 7, stays at "hello"
+        assert_eq!(find_utf8_truncation_point(s, 11), 11); // All fits
+    }
+
+    #[test]
+    fn test_truncate_content_chinese() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // Create a string with Chinese characters near 300 byte boundary
+        // Each Chinese char is 3 bytes, so 100 chars = 300 bytes
+        let chinese_chars = "你好世界程序代码测试"; // 10 chars = 30 bytes
+        let repeated = chinese_chars.repeat(11); // 110 chars = 330 bytes (exceeds 300)
+
+        // This should not panic and should truncate
+        let result = builder.truncate_content(&repeated, 300);
+        assert!(!result.is_empty());
+        // Verify it's valid UTF-8 (implicit - Rust strings are always valid UTF-8)
+        assert!(result.ends_with("..."), "Should be truncated: {}", result);
+    }
+
+    #[test]
+    fn test_truncate_content_arabic() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // Arabic characters (2-4 bytes each)
+        let arabic = "مرحبا بالعالم"; // "Hello world" in Arabic
+        let repeated = arabic.repeat(30);
+
+        // This should not panic
+        let result = builder.truncate_content(&repeated, 300);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_content_emoji() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // 4-byte emoji
+        let emoji = "🎉🎊🎁🎈🎆🎇✨🌟💫⭐";
+        let repeated = emoji.repeat(20);
+
+        // This should not panic
+        let result = builder.truncate_content(&repeated, 300);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_content_combining_chars() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // Combining characters: 'e' + combining acute accent = 'é'
+        // The combining character (U+0301) is 2 bytes
+        let combining = "e\u{0301}"; // é as two codepoints
+        let repeated = combining.repeat(150); // ~450 bytes
+
+        // This should not panic
+        let result = builder.truncate_content(&repeated, 300);
+        assert!(!result.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_content_edge_cases() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // Empty string
+        assert_eq!(builder.truncate_content("", 300), "");
+
+        // String shorter than max_len
+        assert_eq!(builder.truncate_content("short", 300), "short");
+
+        // String exactly at max_len (with spaces normalized)
+        let exact = "a ".repeat(150); // 300 chars but will be normalized
+        let result = builder.truncate_content(&exact, 300);
+        assert!(!result.contains("...") || result.len() <= 303); // Either fits or truncated
+
+        // String with only multi-byte characters
+        let all_chinese = "中".repeat(100); // 300 bytes exactly
+        let result = builder.truncate_content(&all_chinese, 300);
+        // Should not panic and produce valid output
+        assert!(!result.is_empty() || all_chinese.is_empty());
+    }
+
+    #[test]
+    fn test_truncate_content_boundary_panic_case() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // This is the actual problematic case from the bug report:
+        // Content with multi-byte character that would cross the 300 byte boundary
+        let mut content = "a".repeat(299);
+        content.push_str("中"); // 3-byte character at positions 299-301 (total 302 bytes)
+
+        // This should NOT panic (it did before the fix)
+        let result = builder.truncate_content(&content, 300);
+        // The Chinese char (3 bytes) starting at 299 would end at 302, exceeding 300
+        // So we should truncate before it
+        assert!(result.ends_with("..."), "Should be truncated: {}", result);
+        // The Chinese character should NOT be in the result since it doesn't fit
+        assert!(
+            !result.contains("中"),
+            "Should not contain Chinese char: {}",
+            result
+        );
+    }
+
+    #[test]
+    fn test_truncate_content_exact_boundary() {
+        let graph = PetCodeGraph::new();
+        let builder = SemanticTextBuilder::new(&graph);
+
+        // Multi-byte char that fits exactly at boundary
+        let mut content = "a".repeat(297);
+        content.push_str("中"); // 3-byte character at positions 297-299 (total 300 bytes exactly)
+
+        let result = builder.truncate_content(&content, 300);
+        // The content is exactly 300 bytes, should not be truncated
+        assert!(!result.ends_with("..."), "Should not be truncated: {}", result);
+        assert!(result.contains("中"), "Should contain Chinese char: {}", result);
     }
 }
