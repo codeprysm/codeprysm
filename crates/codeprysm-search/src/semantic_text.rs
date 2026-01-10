@@ -142,7 +142,7 @@ impl SemanticTextConfig {
     /// - Parent context: enabled (single lookup)
     /// - Children context: disabled (could load many partitions)
     /// - Inheritance context: disabled
-    /// - References context: enabled but limited to 2 per type
+    /// - References context: enabled but limited to 5 per type
     pub fn streaming() -> Self {
         Self {
             include_parent_context: true,
@@ -150,7 +150,7 @@ impl SemanticTextConfig {
             include_inheritance_context: false,
             include_references_context: true,
             max_children: 0,
-            max_references: 2,
+            max_references: 5,
         }
     }
 }
@@ -1201,7 +1201,7 @@ mod tests {
         assert!(!config.include_inheritance_context);
         assert!(config.include_references_context);
         assert_eq!(config.max_children, 0);
-        assert_eq!(config.max_references, 2);
+        assert_eq!(config.max_references, 5);
     }
 
     #[test]
