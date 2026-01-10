@@ -71,6 +71,10 @@ pub enum SearchError {
     /// IO error
     #[error("IO error: {0}")]
     Io(#[from] std::io::Error),
+
+    /// Graph operation error (lazy loading, partition access, etc.)
+    #[error("Graph error: {0}")]
+    Graph(String),
 }
 
 impl From<qdrant_client::QdrantError> for SearchError {

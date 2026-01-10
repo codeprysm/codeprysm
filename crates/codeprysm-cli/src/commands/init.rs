@@ -5,6 +5,7 @@ use std::path::PathBuf;
 use anyhow::{Context, Result};
 use clap::Args;
 use codeprysm_core::builder::{BuilderConfig, GraphBuilder};
+use codeprysm_core::lazy::manager::LazyGraphManager;
 use codeprysm_core::lazy::partitioner::GraphPartitioner;
 use codeprysm_search::{GraphIndexer, QdrantConfig};
 use tracing::info;
@@ -43,6 +44,76 @@ pub struct InitArgs {
     /// Embedding batch size for API calls (default: 200)
     #[arg(long, default_value = "200")]
     embedding_batch_size: usize,
+
+    /// Use streaming (memory-bounded) indexing mode
+    ///
+    /// This processes the graph partition-by-partition to limit memory usage.
+    /// Recommended for large repositories (>10,000 nodes) or memory-constrained environments.
+    /// When set to "auto", streaming is enabled if the graph has >10,000 nodes.
+    #[arg(long, default_value = "auto")]
+    streaming: StreamingMode,
+
+    /// Maximum memory budget for indexing (e.g., "8GB", "4096MB", "512M")
+    ///
+    /// Controls the memory budget for partition caching during streaming indexing.
+    /// Only applies when streaming mode is enabled.
+    /// Default: 512MB
+    #[arg(long, value_parser = parse_memory_size)]
+    max_index_memory: Option<usize>,
+}
+
+/// Parse a human-readable memory size string into bytes.
+///
+/// Accepts formats like: "8GB", "4096MB", "512M", "1G", "1073741824"
+fn parse_memory_size(s: &str) -> Result<usize, String> {
+    let s = s.trim().to_uppercase();
+
+    // Try parsing as plain number (bytes)
+    if let Ok(bytes) = s.parse::<usize>() {
+        return Ok(bytes);
+    }
+
+    // Find where the numeric part ends and the unit begins
+    let (num_str, unit) = {
+        let mut split_idx = 0;
+        for (i, c) in s.char_indices() {
+            if !c.is_ascii_digit() && c != '.' {
+                split_idx = i;
+                break;
+            }
+        }
+        if split_idx == 0 {
+            return Err(format!("Invalid memory size: {}", s));
+        }
+        (&s[..split_idx], s[split_idx..].trim())
+    };
+
+    let num: f64 = num_str
+        .parse()
+        .map_err(|_| format!("Invalid number in memory size: {}", num_str))?;
+
+    let multiplier: usize = match unit {
+        "B" | "" => 1,
+        "K" | "KB" | "KIB" => 1024,
+        "M" | "MB" | "MIB" => 1024 * 1024,
+        "G" | "GB" | "GIB" => 1024 * 1024 * 1024,
+        "T" | "TB" | "TIB" => 1024 * 1024 * 1024 * 1024,
+        _ => return Err(format!("Unknown memory unit: {}", unit)),
+    };
+
+    Ok((num * multiplier as f64) as usize)
+}
+
+/// Streaming mode for indexing
+#[derive(Debug, Clone, clap::ValueEnum, Default)]
+pub enum StreamingMode {
+    /// Enable streaming mode
+    On,
+    /// Disable streaming mode (load full graph into memory)
+    Off,
+    /// Auto-detect based on graph size (>10K nodes enables streaming)
+    #[default]
+    Auto,
 }
 
 /// Execute the init command
@@ -162,12 +233,38 @@ pub async fn execute(args: InitArgs, global: GlobalOptions) -> Result<()> {
     );
 
     // Index the graph if not skipped
-    // Use the in-memory graph directly instead of reloading from disk via backend
     if !no_index {
-        let pb = spinner("Indexing graph for semantic search...", quiet);
+        // Determine whether to use streaming mode
+        let use_streaming = match args.streaming {
+            StreamingMode::On => true,
+            StreamingMode::Off => false,
+            StreamingMode::Auto => {
+                // Auto-detect: use streaming for large graphs (>10K nodes)
+                let node_count = stats.total_nodes;
+                let threshold = 10_000;
+                if node_count > threshold {
+                    print_info(
+                        &format!(
+                            "Large graph detected ({} nodes > {} threshold), using streaming mode",
+                            node_count, threshold
+                        ),
+                        quiet,
+                    );
+                    true
+                } else {
+                    false
+                }
+            }
+        };
+
+        let mode_label = if use_streaming {
+            "Indexing graph for semantic search (streaming mode)..."
+        } else {
+            "Indexing graph for semantic search..."
+        };
+        let pb = spinner(mode_label, quiet);
 
         // Create indexer with the configured embedding provider
-        // This avoids the overhead of reloading all partitions from disk
         let qdrant_config = QdrantConfig::with_url(&global.qdrant_url);
         let embedding_config = to_search_embedding_config(&config);
 
@@ -181,7 +278,40 @@ pub async fn execute(args: InitArgs, global: GlobalOptions) -> Result<()> {
         {
             Ok(indexer) => {
                 let mut indexer = indexer.with_embedding_batch_size(args.embedding_batch_size);
-                match indexer.index_graph(&graph).await {
+
+                let (index_result, pb) = if use_streaming {
+                    // Streaming mode: reload from disk and process partition-by-partition
+                    // This bounds memory usage regardless of graph size
+                    let manager_result = if let Some(budget) = args.max_index_memory {
+                        let budget_mb = budget / (1024 * 1024);
+                        print_info(
+                            &format!("Using memory budget: {}MB", budget_mb),
+                            quiet,
+                        );
+                        LazyGraphManager::open_with_memory_budget(&prism_dir, Some(budget))
+                    } else {
+                        LazyGraphManager::open(&prism_dir)
+                    };
+
+                    match manager_result {
+                        Ok(manager) => (indexer.index_graph_lazy(&manager).await, pb),
+                        Err(e) => {
+                            finish_spinner_warn(pb, "Failed to open graph for streaming");
+                            if !quiet {
+                                eprintln!("  Warning: {}", e);
+                                eprintln!("  Falling back to in-memory indexing...");
+                            }
+                            // Fallback to in-memory indexing - create new spinner
+                            let pb = spinner("Indexing graph for semantic search...", quiet);
+                            (indexer.index_graph(&graph).await, pb)
+                        }
+                    }
+                } else {
+                    // Standard mode: use the in-memory graph directly
+                    (indexer.index_graph(&graph).await, pb)
+                };
+
+                match index_result {
                     Ok(stats) => {
                         finish_spinner(
                             pb,

@@ -28,14 +28,17 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use codeprysm_core::lazy::manager::LazyGraphManager;
 use codeprysm_core::{Node, PetCodeGraph};
 use tracing::{debug, info};
+
+use crate::graph_context::GraphContext;
 
 use crate::client::{QdrantConfig, QdrantStore};
 use crate::embeddings::{EmbeddingConfig, EmbeddingProvider, EmbeddingProviderType};
 use crate::error::Result;
 use crate::schema::{collections, CodePoint, EntityPayload};
-use crate::semantic_text::SemanticTextBuilder;
+use crate::semantic_text::{SemanticTextBuilder, SemanticTextConfig};
 use crate::EmbeddingsManager;
 
 /// Statistics from indexing operation
@@ -53,6 +56,12 @@ pub struct IndexStats {
     pub semantic_indexed: usize,
     /// Nodes indexed to code collection
     pub code_indexed: usize,
+    /// Number of partitions processed (streaming mode only)
+    pub partitions_processed: usize,
+    /// Average nodes per partition (streaming mode only)
+    pub nodes_per_partition_avg: f64,
+    /// Estimated peak memory usage in bytes (based on 2KB/node heuristic)
+    pub estimated_peak_memory_bytes: usize,
 }
 
 /// Embedding source - either legacy EmbeddingsManager or new provider
@@ -269,7 +278,26 @@ impl GraphIndexer {
         }
     }
 
-    /// Ensure collections exist and index the graph
+    /// Ensure collections exist and index the graph.
+    ///
+    /// This method loads all nodes into memory before processing, which provides
+    /// optimal performance for small to medium repositories.
+    ///
+    /// # Memory Usage
+    ///
+    /// **Warning**: For large repositories (>10,000 nodes), this method may consume
+    /// significant memory (potentially 50GB+ for 50K nodes). Consider using
+    /// [`index_graph_lazy()`](Self::index_graph_lazy) with a `LazyGraphManager` instead,
+    /// which processes partition-by-partition with bounded memory usage.
+    ///
+    /// # When to Use
+    ///
+    /// - Repositories with <10,000 nodes
+    /// - Environments with ample RAM
+    /// - When maximum indexing speed is required
+    ///
+    /// For large repositories or memory-constrained environments, use
+    /// `index_graph_lazy()` instead.
     ///
     /// Uses batched parallel encoding for optimal performance with remote providers.
     pub async fn index_graph(&mut self, graph: &PetCodeGraph) -> Result<IndexStats> {
@@ -454,6 +482,355 @@ impl GraphIndexer {
         Ok(stats)
     }
 
+    /// Index a graph using streaming partition-by-partition approach.
+    ///
+    /// This method provides **memory-bounded indexing** for large repositories.
+    /// Unlike `index_graph()` which loads all nodes into memory before processing,
+    /// this method:
+    ///
+    /// 1. Iterates partitions one at a time using `LazyGraphManager`
+    /// 2. Loads nodes only for the current partition
+    /// 3. Generates embeddings in batches
+    /// 4. Upserts to Qdrant immediately
+    /// 5. Releases partition memory before moving to the next
+    ///
+    /// # Memory Bounds
+    ///
+    /// Memory usage is bounded by:
+    /// - Single partition's nodes (~1-5MB typically)
+    /// - One embedding batch worth of vectors (~embedding_batch_size × 768 × 4 bytes)
+    /// - Qdrant upsert batch (~batch_size points)
+    ///
+    /// A 50K-node repo and a 500K-node repo will have similar peak memory usage.
+    ///
+    /// # When to Use
+    ///
+    /// - Repositories with >10,000 nodes
+    /// - Memory-constrained environments
+    /// - When the default `index_graph()` causes memory pressure
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use codeprysm_core::lazy::manager::LazyGraphManager;
+    ///
+    /// let manager = LazyGraphManager::open(&prism_dir)?;
+    /// let stats = indexer.index_graph_lazy(&manager).await?;
+    /// ```
+    pub async fn index_graph_lazy(&mut self, manager: &LazyGraphManager) -> Result<IndexStats> {
+        info!(repo_id = %self.repo_id, "Starting streaming graph indexing");
+
+        // Ensure collections exist
+        self.store.ensure_collections().await?;
+        info!("Collections ensured");
+
+        // Clear existing points for this repo (for clean reindex)
+        self.store.delete_repo_points(collections::SEMANTIC).await?;
+        self.store.delete_repo_points(collections::CODE).await?;
+        info!("Cleared existing points for repo");
+
+        // Get total count for progress reporting (without loading nodes)
+        let total_nodes = manager.get_total_indexable_node_count()
+            .map_err(|e| crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e)))?;
+        let total_partitions = manager.partition_count();
+
+        info!(
+            "Found {} indexable nodes across {} partitions",
+            total_nodes, total_partitions
+        );
+
+        let mut stats = IndexStats::default();
+
+        // Iterate partitions manually since we need async operations
+        let partition_ids: Vec<String> = manager.manifest().partitions.keys().cloned().collect();
+
+        // Track partition statistics for memory estimation
+        let mut max_partition_nodes = 0usize;
+        let mut total_partition_nodes = 0usize;
+        let mut partitions_with_nodes = 0usize;
+
+        // Estimated memory per node (content + semantic text + embeddings buffer)
+        // Based on empirical observation: ~2KB per node average
+        const BYTES_PER_NODE_ESTIMATE: usize = 2048;
+
+        for (idx, partition_id) in partition_ids.iter().enumerate() {
+            tracing::debug!(
+                partition = %partition_id,
+                index = idx,
+                total = partition_ids.len(),
+                "Starting partition indexing"
+            );
+
+            // Load partition nodes directly from database
+            let db_path = manager.manifest().get_partition_file(partition_id);
+            if db_path.is_none() {
+                tracing::warn!("Partition {} has no database file", partition_id);
+                continue;
+            }
+
+            // Use the manager to get partition nodes
+            // We need to load the partition to access its nodes
+            if let Err(e) = manager.load_partition(partition_id) {
+                tracing::warn!("Failed to load partition {}: {}", partition_id, e);
+                continue;
+            }
+
+            // Get nodes from this partition
+            let node_ids = match manager.node_ids_in_partition(partition_id) {
+                Some(ids) => ids,
+                None => {
+                    manager.unload_partition(partition_id);
+                    continue;
+                }
+            };
+
+            // Get the actual nodes
+            let nodes: Vec<Node> = node_ids
+                .iter()
+                .filter_map(|id| manager.get_node_if_loaded(id))
+                .filter(|n| !n.is_file() && !n.is_repository())
+                .collect();
+
+            if nodes.is_empty() {
+                manager.unload_partition(partition_id);
+                continue;
+            }
+
+            let partition_node_count = nodes.len();
+            max_partition_nodes = max_partition_nodes.max(partition_node_count);
+            total_partition_nodes += partition_node_count;
+            partitions_with_nodes += 1;
+
+            // Estimate memory for this partition
+            let estimated_partition_mb =
+                (partition_node_count * BYTES_PER_NODE_ESTIMATE) as f64 / (1024.0 * 1024.0);
+
+            info!(
+                "Processing partition {}/{}: {} ({} nodes, ~{:.1}MB estimated)",
+                idx + 1,
+                partition_ids.len(),
+                partition_id,
+                partition_node_count,
+                estimated_partition_mb
+            );
+
+            // Index this partition's nodes using the LazyGraphManager for context
+            let partition_stats = self.index_nodes_with_context(&nodes, manager).await?;
+
+            // Accumulate stats
+            stats.total_processed += partition_stats.total_processed;
+            stats.total_indexed += partition_stats.total_indexed;
+            stats.total_skipped += partition_stats.total_skipped;
+            stats.total_failed += partition_stats.total_failed;
+            stats.semantic_indexed += partition_stats.semantic_indexed;
+            stats.code_indexed += partition_stats.code_indexed;
+
+            // Unload partition to free memory
+            manager.unload_partition(partition_id);
+
+            // Log progress with memory estimate
+            let progress_pct = if total_nodes > 0 {
+                (stats.total_indexed as f64 / total_nodes as f64) * 100.0
+            } else {
+                0.0
+            };
+
+            info!(
+                "Progress: {}/{} partitions, {}/{} nodes indexed ({:.1}%)",
+                idx + 1,
+                partition_ids.len(),
+                stats.total_indexed,
+                total_nodes,
+                progress_pct
+            );
+        }
+
+        // Compute final partition statistics
+        stats.partitions_processed = partitions_with_nodes;
+        stats.nodes_per_partition_avg = if partitions_with_nodes > 0 {
+            total_partition_nodes as f64 / partitions_with_nodes as f64
+        } else {
+            0.0
+        };
+        // Peak memory = largest partition + embedding batch buffer
+        let embedding_batch_buffer = self.embedding_batch_size * 4096; // ~4KB per embedding
+        stats.estimated_peak_memory_bytes =
+            (max_partition_nodes * BYTES_PER_NODE_ESTIMATE) + embedding_batch_buffer;
+
+        let peak_mb = stats.estimated_peak_memory_bytes as f64 / (1024.0 * 1024.0);
+        info!(
+            "Streaming indexing complete: {} processed, {} indexed, {} skipped, {} failed",
+            stats.total_processed, stats.total_indexed, stats.total_skipped, stats.total_failed
+        );
+        info!(
+            "Partition stats: {} partitions, {:.1} nodes/partition avg, ~{:.1}MB estimated peak memory",
+            stats.partitions_processed, stats.nodes_per_partition_avg, peak_mb
+        );
+
+        Ok(stats)
+    }
+
+    /// Index nodes using a generic graph context for semantic text building.
+    ///
+    /// This is the core indexing logic extracted to work with any GraphContext
+    /// implementation (PetCodeGraph or LazyGraphManager).
+    ///
+    /// Uses `SemanticTextConfig::streaming()` to limit cross-partition context
+    /// lookups and bound memory usage in streaming mode.
+    async fn index_nodes_with_context<G>(
+        &mut self,
+        nodes: &[Node],
+        graph: G,
+    ) -> Result<IndexStats>
+    where
+        G: GraphContext,
+    {
+        // Use streaming config to limit cross-partition lookups
+        let semantic_builder =
+            SemanticTextBuilder::new_with_config(graph, SemanticTextConfig::streaming());
+        let mut stats = IndexStats::default();
+
+        // Phase 1: Collect all valid nodes and their content
+        struct NodeData {
+            point_id: u64,
+            semantic_text: String,
+            code_text: String,
+            payload: EntityPayload,
+        }
+
+        let mut pending_nodes: Vec<NodeData> = Vec::new();
+
+        for node in nodes {
+            stats.total_processed += 1;
+
+            // Skip file and repository nodes
+            if node.is_file() || node.is_repository() {
+                stats.total_skipped += 1;
+                continue;
+            }
+
+            // Read source code for the node
+            let content = match self.read_node_content(node) {
+                Ok(c) => c,
+                Err(e) => {
+                    debug!("Failed to read content for {}: {}", node.id, e);
+                    stats.total_failed += 1;
+                    continue;
+                }
+            };
+
+            // Skip empty content
+            if content.trim().is_empty() {
+                stats.total_skipped += 1;
+                continue;
+            }
+
+            // Create rich semantic text
+            let semantic_text = semantic_builder.build(node, &content);
+
+            // Create payload
+            let payload = EntityPayload {
+                repo_id: self.repo_id.clone(),
+                entity_id: node.id.clone(),
+                name: node.name.clone(),
+                entity_type: node.node_type.as_str().to_string(),
+                kind: node.kind.clone().unwrap_or_default(),
+                subtype: node.subtype.clone().unwrap_or_default(),
+                file_path: node.file.clone(),
+                start_line: node.line as u32,
+                end_line: node.end_line as u32,
+            };
+
+            let point_id = CodePoint::generate_id(&node.id, &self.repo_id);
+
+            pending_nodes.push(NodeData {
+                point_id,
+                semantic_text,
+                code_text: content,
+                payload,
+            });
+        }
+
+        if pending_nodes.is_empty() {
+            return Ok(stats);
+        }
+
+        // Phase 2: Generate embeddings in batches
+        let mut semantic_points = Vec::with_capacity(pending_nodes.len());
+        let mut code_points = Vec::with_capacity(pending_nodes.len());
+
+        for (batch_idx, batch) in pending_nodes.chunks(self.embedding_batch_size).enumerate() {
+            // Extract texts for this batch
+            let semantic_texts: Vec<String> =
+                batch.iter().map(|n| n.semantic_text.clone()).collect();
+            let code_texts: Vec<String> = batch.iter().map(|n| n.code_text.clone()).collect();
+
+            // Generate embeddings
+            let (semantic_vecs, code_vecs) =
+                match self.encode_batch_parallel(semantic_texts, code_texts).await {
+                    Ok(vecs) => vecs,
+                    Err(e) => {
+                        debug!("Batch {} failed: {}", batch_idx, e);
+                        stats.total_failed += batch.len();
+                        continue;
+                    }
+                };
+
+            // Verify we got the expected number of embeddings
+            if semantic_vecs.len() != batch.len() || code_vecs.len() != batch.len() {
+                debug!(
+                    "Batch {} size mismatch: expected {}, got semantic={}, code={}",
+                    batch_idx,
+                    batch.len(),
+                    semantic_vecs.len(),
+                    code_vecs.len()
+                );
+                stats.total_failed += batch.len();
+                continue;
+            }
+
+            // Build points from embeddings
+            for (i, node_data) in batch.iter().enumerate() {
+                semantic_points.push(CodePoint {
+                    id: node_data.point_id,
+                    vector: semantic_vecs[i].clone(),
+                    payload: node_data.payload.clone(),
+                    content: node_data.semantic_text.clone(),
+                });
+
+                code_points.push(CodePoint {
+                    id: node_data.point_id,
+                    vector: code_vecs[i].clone(),
+                    payload: node_data.payload.clone(),
+                    content: node_data.code_text.clone(),
+                });
+
+                stats.total_indexed += 1;
+            }
+        }
+
+        // Phase 3: Upsert immediately (don't accumulate across partitions)
+        if !semantic_points.is_empty() {
+            self.store
+                .upsert_points_batched(
+                    collections::SEMANTIC,
+                    semantic_points.clone(),
+                    self.batch_size,
+                )
+                .await?;
+            stats.semantic_indexed = semantic_points.len();
+        }
+
+        if !code_points.is_empty() {
+            self.store
+                .upsert_points_batched(collections::CODE, code_points.clone(), self.batch_size)
+                .await?;
+            stats.code_indexed = code_points.len();
+        }
+
+        Ok(stats)
+    }
+
     /// Index a batch of nodes and upsert immediately
     ///
     /// This is used for partition-by-partition indexing to avoid loading
@@ -466,6 +843,16 @@ impl GraphIndexer {
     /// The `graph` parameter is needed for SemanticTextBuilder context.
     ///
     /// Uses batched parallel encoding for optimal performance with remote providers.
+    ///
+    /// # Deprecation
+    ///
+    /// For new code, prefer using [`index_graph_lazy()`](Self::index_graph_lazy) with
+    /// `LazyGraphManager` for memory-bounded indexing. This method requires holding
+    /// the full graph in memory, which can cause memory exhaustion for large repos.
+    #[deprecated(
+        since = "0.2.0",
+        note = "Use index_graph_lazy() with LazyGraphManager for memory-bounded indexing"
+    )]
     pub async fn index_nodes(
         &mut self,
         nodes: &[Node],
@@ -872,6 +1259,177 @@ impl GraphIndexer {
 
         info!(
             "Incremental indexing complete: {} processed, {} indexed, {} skipped, {} failed",
+            stats.total_processed, stats.total_indexed, stats.total_skipped, stats.total_failed
+        );
+
+        Ok(stats)
+    }
+
+    /// Incrementally index only changed files using streaming partition-by-partition approach.
+    ///
+    /// This is a memory-bounded alternative to [`index_changes()`](Self::index_changes) that
+    /// processes changed files by partition, loading and unloading partitions as needed.
+    ///
+    /// # Memory Bounds
+    ///
+    /// Memory usage is bounded by:
+    /// - Single partition's nodes for changed files
+    /// - One embedding batch worth of vectors
+    /// - Qdrant upsert batch
+    ///
+    /// # Algorithm
+    ///
+    /// 1. Delete points for deleted files
+    /// 2. Delete points for modified files (will be re-indexed)
+    /// 3. Group added+modified files by partition ID using manifest
+    /// 4. For each affected partition:
+    ///    - Load partition
+    ///    - Find nodes in changed files
+    ///    - Index nodes using streaming config
+    ///    - Upsert to Qdrant
+    ///    - Unload partition
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use codeprysm_core::lazy::manager::LazyGraphManager;
+    /// use codeprysm_core::merkle::ChangeSet;
+    ///
+    /// let manager = LazyGraphManager::open(&prism_dir)?;
+    /// let changes = ChangeSet { added: vec!["new.rs".into()], ..Default::default() };
+    /// let stats = indexer.index_changes_lazy(&manager, &changes).await?;
+    /// ```
+    pub async fn index_changes_lazy(
+        &mut self,
+        manager: &LazyGraphManager,
+        changes: &codeprysm_core::merkle::ChangeSet,
+    ) -> Result<IndexStats> {
+        use std::collections::{HashMap, HashSet};
+
+        info!(
+            "Starting streaming incremental indexing: {} added, {} modified, {} deleted",
+            changes.added.len(),
+            changes.modified.len(),
+            changes.deleted.len()
+        );
+
+        // Ensure collections exist
+        self.store.ensure_collections().await?;
+
+        // 1. Delete points for deleted files
+        for file_path in &changes.deleted {
+            debug!("Deleting points for deleted file: {}", file_path);
+            self.store
+                .delete_points_by_file(collections::SEMANTIC, file_path)
+                .await?;
+            self.store
+                .delete_points_by_file(collections::CODE, file_path)
+                .await?;
+        }
+
+        // 2. Delete points for modified files (will be re-indexed)
+        for file_path in &changes.modified {
+            debug!("Deleting points for modified file: {}", file_path);
+            self.store
+                .delete_points_by_file(collections::SEMANTIC, file_path)
+                .await?;
+            self.store
+                .delete_points_by_file(collections::CODE, file_path)
+                .await?;
+        }
+
+        // 3. Group files to index by partition ID
+        let files_to_index: HashSet<&str> = changes
+            .added
+            .iter()
+            .chain(changes.modified.iter())
+            .map(|s| s.as_str())
+            .collect();
+
+        if files_to_index.is_empty() {
+            info!("No files to index (only deletions)");
+            return Ok(IndexStats::default());
+        }
+
+        // Group files by partition
+        let manifest = manager.manifest();
+        let mut files_by_partition: HashMap<String, Vec<&str>> = HashMap::new();
+
+        for file in &files_to_index {
+            if let Some(partition_id) = manifest.get_partition_for_file(file) {
+                files_by_partition
+                    .entry(partition_id.to_string())
+                    .or_default()
+                    .push(file);
+            } else {
+                debug!("File {} not found in manifest, skipping", file);
+            }
+        }
+
+        info!(
+            "Found {} files across {} partitions",
+            files_to_index.len(),
+            files_by_partition.len()
+        );
+
+        let mut stats = IndexStats::default();
+
+        // 4. Process each partition
+        for (partition_id, partition_files) in files_by_partition {
+            debug!(
+                "Processing partition {} ({} files)",
+                partition_id,
+                partition_files.len()
+            );
+
+            // Load partition
+            if let Err(e) = manager.load_partition(&partition_id) {
+                tracing::warn!("Failed to load partition {}: {}", partition_id, e);
+                continue;
+            }
+
+            // Get node IDs in this partition
+            let node_ids = match manager.node_ids_in_partition(&partition_id) {
+                Some(ids) => ids,
+                None => {
+                    manager.unload_partition(&partition_id);
+                    continue;
+                }
+            };
+
+            // Create set of files to index in this partition
+            let partition_files_set: HashSet<&str> = partition_files.into_iter().collect();
+
+            // Get nodes that belong to the changed files
+            let nodes: Vec<Node> = node_ids
+                .iter()
+                .filter_map(|id| manager.get_node_if_loaded(id))
+                .filter(|n| {
+                    !n.is_file()
+                        && !n.is_repository()
+                        && partition_files_set.contains(n.file.as_str())
+                })
+                .collect();
+
+            if !nodes.is_empty() {
+                // Index nodes using streaming config
+                let partition_stats = self.index_nodes_with_context(&nodes, manager).await?;
+
+                // Accumulate stats
+                stats.total_processed += partition_stats.total_processed;
+                stats.total_indexed += partition_stats.total_indexed;
+                stats.total_skipped += partition_stats.total_skipped;
+                stats.total_failed += partition_stats.total_failed;
+                stats.semantic_indexed += partition_stats.semantic_indexed;
+                stats.code_indexed += partition_stats.code_indexed;
+            }
+
+            // Unload partition to free memory
+            manager.unload_partition(&partition_id);
+        }
+
+        info!(
+            "Streaming incremental indexing complete: {} processed, {} indexed, {} skipped, {} failed",
             stats.total_processed, stats.total_indexed, stats.total_skipped, stats.total_failed
         );
 
