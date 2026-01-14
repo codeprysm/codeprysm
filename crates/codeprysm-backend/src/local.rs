@@ -535,24 +535,28 @@ impl Backend for LocalBackend {
         }
 
         info!(
-            "Indexing graph for '{}' using streaming memory-bounded approach",
+            "Indexing graph for '{}' using streaming memory-bounded approach with checkpoint support",
             self.repo_id
         );
 
-        // Use index_graph_lazy() for memory-bounded indexing
-        // This handles partition iteration internally and never loads the full graph
+        let prism_dir = self.prism_dir();
+
+        // Use index_graph_lazy_resumable() for memory-bounded indexing with checkpoint/resume
+        // This handles:
+        // - Collection creation and conditional clearing (skip if resuming)
+        // - Checkpoint file read/write for resume capability
+        // - Partition-by-partition iteration with skip for completed partitions
+        // - Loading/unloading partitions
+        // - Streaming config for cross-partition context
         let stats = {
             let guard = self.graph_manager.read().await;
             let manager = guard
                 .as_ref()
                 .ok_or_else(|| BackendError::with_context("indexing", "graph not loaded"))?;
 
-            // index_graph_lazy() handles:
-            // - Collection creation and clearing
-            // - Partition-by-partition iteration
-            // - Loading/unloading partitions
-            // - Streaming config for cross-partition context
-            indexer.index_graph_lazy(manager).await?
+            indexer
+                .index_graph_lazy_resumable(manager, &prism_dir, force)
+                .await?
         };
 
         info!(

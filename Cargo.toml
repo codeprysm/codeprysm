@@ -78,6 +78,9 @@ governor = "0.8"
 # Hashing
 sha2 = "0.10"
 
+# Date/Time
+chrono = { version = "0.4", features = ["serde"] }
+
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -93,6 +96,9 @@ ignore = "0.4"
 
 # Regex
 regex = "1.11"
+
+# Encoding detection
+encoding_rs = "0.8"
 
 # Error handling
 thiserror = "2.0"

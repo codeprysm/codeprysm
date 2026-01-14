@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use encoding_rs::{WINDOWS_1252, UTF_16BE, UTF_16LE, UTF_8};
 use ignore::WalkBuilder;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -55,6 +56,50 @@ pub enum BuilderError {
     /// No supported files found
     #[error("No supported files found in directory: {0}")]
     NoFilesFound(PathBuf),
+}
+
+// ============================================================================
+// File Reading with Encoding Detection
+// ============================================================================
+
+/// Read a file with automatic encoding detection.
+///
+/// Supports:
+/// - UTF-8 (with or without BOM)
+/// - UTF-16 LE/BE (with BOM)
+/// - Windows-1252 (fallback for "ANSI" encoded files)
+fn read_file_with_encoding(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+
+    // Check for BOM (Byte Order Mark)
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        // UTF-8 with BOM
+        let (result, _, had_errors) = UTF_8.decode(&bytes[3..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    } else if bytes.starts_with(&[0xFF, 0xFE]) {
+        // UTF-16 LE with BOM
+        let (result, _, had_errors) = UTF_16LE.decode(&bytes[2..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    } else if bytes.starts_with(&[0xFE, 0xFF]) {
+        // UTF-16 BE with BOM
+        let (result, _, had_errors) = UTF_16BE.decode(&bytes[2..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    }
+
+    // Try UTF-8 first (most common)
+    if let Ok(s) = std::str::from_utf8(&bytes) {
+        return Ok(s.to_string());
+    }
+
+    // Fallback to Windows-1252 (never fails, covers all 256 byte values)
+    let (result, _, _) = WINDOWS_1252.decode(&bytes);
+    Ok(result.into_owned())
 }
 
 // ============================================================================
@@ -551,8 +596,8 @@ impl GraphBuilder {
             None => return Ok(()), // Skip unsupported files
         };
 
-        // Read file content
-        let source = std::fs::read_to_string(file_path)?;
+        // Read file content (with encoding detection for non-UTF-8 files)
+        let source = read_file_with_encoding(file_path)?;
 
         // Compute file hash
         let file_hash = compute_file_hash(file_path)?;
@@ -1188,7 +1233,7 @@ impl ComponentBuilder {
         root: &Path,
         repo_name: &str,
     ) -> Result<Option<DiscoveredComponent>, BuilderError> {
-        let content = std::fs::read_to_string(path)?;
+        let content = read_file_with_encoding(path)?;
         let rel_path = path
             .strip_prefix(root)
             .unwrap_or(path)

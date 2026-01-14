@@ -75,6 +75,10 @@ pub enum SearchError {
     /// Graph operation error (lazy loading, partition access, etc.)
     #[error("Graph error: {0}")]
     Graph(String),
+
+    /// Checkpoint operation error
+    #[error("Checkpoint error: {0}")]
+    Checkpoint(String),
 }
 
 impl From<qdrant_client::QdrantError> for SearchError {
@@ -86,6 +90,12 @@ impl From<qdrant_client::QdrantError> for SearchError {
 impl From<candle_core::Error> for SearchError {
     fn from(err: candle_core::Error) -> Self {
         SearchError::Embedding(err.to_string())
+    }
+}
+
+impl From<crate::checkpoint::CheckpointError> for SearchError {
+    fn from(err: crate::checkpoint::CheckpointError) -> Self {
+        SearchError::Checkpoint(err.to_string())
     }
 }
 

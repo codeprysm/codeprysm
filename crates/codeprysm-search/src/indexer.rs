@@ -670,6 +670,303 @@ impl GraphIndexer {
         Ok(stats)
     }
 
+    /// Index a graph with checkpoint/resume support.
+    ///
+    /// This method extends [`index_graph_lazy()`](Self::index_graph_lazy) with:
+    /// - Checkpoint file read/write for resume capability
+    /// - Conditional clearing of Qdrant points (skip if resuming)
+    /// - Skip completed partitions
+    /// - Re-index interrupted partition
+    /// - Progress reporting with resume context
+    ///
+    /// # Resume Behavior
+    ///
+    /// - If checkpoint exists and manifest unchanged: resumes from last completed partition
+    /// - If checkpoint exists but manifest changed: starts fresh (checkpoint invalidated)
+    /// - If checkpoint exists but Qdrant URL changed: starts fresh (checkpoint invalidated)
+    /// - If `force=true`: ignores checkpoint and starts fresh
+    ///
+    /// # Checkpoint Location
+    ///
+    /// Checkpoint is stored at `{prism_dir}/index_checkpoint.json` alongside manifest.json.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// use codeprysm_core::lazy::manager::LazyGraphManager;
+    ///
+    /// let manager = LazyGraphManager::open(&prism_dir)?;
+    /// let stats = indexer.index_graph_lazy_resumable(&manager, &prism_dir, false).await?;
+    /// ```
+    pub async fn index_graph_lazy_resumable(
+        &mut self,
+        manager: &LazyGraphManager,
+        prism_dir: &Path,
+        force: bool,
+    ) -> Result<IndexStats> {
+        use crate::checkpoint::{compute_manifest_hash, IndexCheckpoint, ResumeValidation};
+
+        let checkpoint_path = prism_dir.join("index_checkpoint.json");
+        let manifest_path = prism_dir.join("manifest.json");
+
+        // Compute manifest hash for validation
+        let manifest_hash = compute_manifest_hash(&manifest_path)?;
+        let qdrant_url = self.store.url().to_string();
+
+        // Try to load existing checkpoint (unless force is set)
+        let existing_checkpoint = if !force {
+            match IndexCheckpoint::load(&checkpoint_path)? {
+                Some(cp) => {
+                    match cp.is_resumable(&manifest_hash, &qdrant_url) {
+                        ResumeValidation::Valid => {
+                            info!(
+                                "Resuming from checkpoint: {}/{} partitions completed",
+                                cp.completed_partitions.len(),
+                                manager.partition_count()
+                            );
+                            Some(cp)
+                        }
+                        ResumeValidation::ManifestChanged { .. } => {
+                            info!("Manifest changed since checkpoint, starting fresh");
+                            None
+                        }
+                        ResumeValidation::QdrantUrlMismatch { old_url, new_url } => {
+                            info!(
+                                "Qdrant URL changed ({} -> {}), starting fresh",
+                                old_url, new_url
+                            );
+                            None
+                        }
+                        ResumeValidation::RepoMismatch { old_repo, new_repo } => {
+                            info!(
+                                "Repository changed ({} -> {}), starting fresh",
+                                old_repo, new_repo
+                            );
+                            None
+                        }
+                        ResumeValidation::AlreadyCompleted => {
+                            info!("Previous indexing completed, starting fresh");
+                            None
+                        }
+                        ResumeValidation::PreviousFailed { error } => {
+                            info!(
+                                "Previous indexing failed ({}), resuming from last completed partition",
+                                error
+                            );
+                            Some(cp)
+                        }
+                    }
+                }
+                None => None,
+            }
+        } else {
+            info!("Force flag set, ignoring any existing checkpoint");
+            None
+        };
+
+        let is_resuming = existing_checkpoint.is_some();
+
+        // Create new checkpoint or use existing one
+        let mut checkpoint = existing_checkpoint.unwrap_or_else(|| {
+            IndexCheckpoint::new(self.repo_id.clone(), manifest_hash, qdrant_url)
+        });
+
+        info!(repo_id = %self.repo_id, is_resuming = is_resuming, "Starting streaming graph indexing");
+
+        // Ensure collections exist
+        self.store.ensure_collections().await?;
+        info!("Collections ensured");
+
+        // CONDITIONAL: Only clear points if NOT resuming
+        if !is_resuming {
+            info!("Starting fresh indexing, clearing existing points");
+            self.store.delete_repo_points(collections::SEMANTIC).await?;
+            self.store.delete_repo_points(collections::CODE).await?;
+            info!("Cleared existing points for repo");
+        } else {
+            info!(
+                "Resuming indexing, keeping {} existing partitions' points",
+                checkpoint.completed_partitions.len()
+            );
+        }
+
+        // Get total count for progress reporting (without loading nodes)
+        let total_nodes = manager
+            .get_total_indexable_node_count()
+            .map_err(|e| crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e)))?;
+        let total_partitions = manager.partition_count();
+
+        info!(
+            "Found {} indexable nodes across {} partitions",
+            total_nodes, total_partitions
+        );
+
+        let mut stats = IndexStats::default();
+
+        // Iterate partitions manually since we need async operations
+        let partition_ids: Vec<String> = manager.manifest().partitions.keys().cloned().collect();
+
+        // Build list of partitions to process (skip completed ones)
+        let partitions_to_process: Vec<&str> = partition_ids
+            .iter()
+            .filter(|id| !checkpoint.is_partition_completed(id))
+            .map(|s| s.as_str())
+            .collect();
+
+        let skipped_count = partition_ids.len() - partitions_to_process.len();
+        if skipped_count > 0 {
+            info!(
+                "Skipping {} already-completed partitions, processing {}",
+                skipped_count,
+                partitions_to_process.len()
+            );
+        }
+
+        // Save initial checkpoint
+        checkpoint.save(&checkpoint_path)?;
+
+        // Track partition statistics for memory estimation
+        let mut max_partition_nodes = 0usize;
+        let mut total_partition_nodes = 0usize;
+        let mut partitions_with_nodes = 0usize;
+
+        // Estimated memory per node (content + semantic text + embeddings buffer)
+        // Based on empirical observation: ~2KB per node average
+        const BYTES_PER_NODE_ESTIMATE: usize = 2048;
+
+        for (idx, partition_id) in partitions_to_process.iter().enumerate() {
+            tracing::debug!(
+                partition = %partition_id,
+                index = idx,
+                total = partitions_to_process.len(),
+                "Starting partition indexing"
+            );
+
+            // Mark partition as starting (for crash recovery)
+            checkpoint.start_partition(partition_id);
+            checkpoint.save(&checkpoint_path)?;
+
+            // Load partition nodes directly from database
+            let db_path = manager.manifest().get_partition_file(partition_id);
+            if db_path.is_none() {
+                tracing::warn!("Partition {} has no database file", partition_id);
+                continue;
+            }
+
+            // Use the manager to get partition nodes
+            // We need to load the partition to access its nodes
+            if let Err(e) = manager.load_partition(partition_id) {
+                tracing::warn!("Failed to load partition {}: {}", partition_id, e);
+                continue;
+            }
+
+            // Get nodes from this partition
+            let node_ids = match manager.node_ids_in_partition(partition_id) {
+                Some(ids) => ids,
+                None => {
+                    manager.unload_partition(partition_id);
+                    continue;
+                }
+            };
+
+            // Get the actual nodes
+            let nodes: Vec<Node> = node_ids
+                .iter()
+                .filter_map(|id| manager.get_node_if_loaded(id))
+                .filter(|n| !n.is_file() && !n.is_repository())
+                .collect();
+
+            if nodes.is_empty() {
+                manager.unload_partition(partition_id);
+                // Mark as completed even if empty (still processed successfully)
+                checkpoint.complete_partition(partition_id, &IndexStats::default());
+                checkpoint.save(&checkpoint_path)?;
+                continue;
+            }
+
+            let partition_node_count = nodes.len();
+            max_partition_nodes = max_partition_nodes.max(partition_node_count);
+            total_partition_nodes += partition_node_count;
+            partitions_with_nodes += 1;
+
+            // Estimate memory for this partition
+            let estimated_partition_mb =
+                (partition_node_count * BYTES_PER_NODE_ESTIMATE) as f64 / (1024.0 * 1024.0);
+
+            info!(
+                "Processing partition {}/{}: {} ({} nodes, ~{:.1}MB estimated)",
+                idx + 1,
+                partitions_to_process.len(),
+                partition_id,
+                partition_node_count,
+                estimated_partition_mb
+            );
+
+            // Index this partition's nodes using the LazyGraphManager for context
+            let partition_stats = self.index_nodes_with_context(&nodes, manager).await?;
+
+            // Accumulate stats
+            stats.total_processed += partition_stats.total_processed;
+            stats.total_indexed += partition_stats.total_indexed;
+            stats.total_skipped += partition_stats.total_skipped;
+            stats.total_failed += partition_stats.total_failed;
+            stats.semantic_indexed += partition_stats.semantic_indexed;
+            stats.code_indexed += partition_stats.code_indexed;
+
+            // Unload partition to free memory
+            manager.unload_partition(partition_id);
+
+            // Mark partition as completed and save checkpoint
+            checkpoint.complete_partition(partition_id, &partition_stats);
+            checkpoint.save(&checkpoint_path)?;
+
+            // Log progress with memory estimate
+            let total_completed = checkpoint.completed_count();
+            let progress_pct = (total_completed as f64 / total_partitions as f64) * 100.0;
+
+            info!(
+                "Progress: {}/{} partitions ({:.1}%), {} nodes indexed",
+                total_completed, total_partitions, progress_pct, stats.total_indexed
+            );
+        }
+
+        // Compute final partition statistics
+        stats.partitions_processed = partitions_with_nodes + skipped_count;
+        stats.nodes_per_partition_avg = if partitions_with_nodes > 0 {
+            total_partition_nodes as f64 / partitions_with_nodes as f64
+        } else {
+            0.0
+        };
+        // Peak memory = largest partition + embedding batch buffer
+        let embedding_batch_buffer = self.embedding_batch_size * 4096; // ~4KB per embedding
+        stats.estimated_peak_memory_bytes =
+            (max_partition_nodes * BYTES_PER_NODE_ESTIMATE) + embedding_batch_buffer;
+
+        // Add stats from resumed partitions
+        stats.total_indexed += checkpoint.stats.total_indexed;
+        stats.total_processed += checkpoint.stats.total_processed;
+        stats.total_skipped += checkpoint.stats.total_skipped;
+        stats.total_failed += checkpoint.stats.total_failed;
+        stats.semantic_indexed += checkpoint.stats.semantic_indexed;
+        stats.code_indexed += checkpoint.stats.code_indexed;
+
+        let peak_mb = stats.estimated_peak_memory_bytes as f64 / (1024.0 * 1024.0);
+        info!(
+            "Streaming indexing complete: {} processed, {} indexed, {} skipped, {} failed",
+            stats.total_processed, stats.total_indexed, stats.total_skipped, stats.total_failed
+        );
+        info!(
+            "Partition stats: {} partitions, {:.1} nodes/partition avg, ~{:.1}MB estimated peak memory",
+            stats.partitions_processed, stats.nodes_per_partition_avg, peak_mb
+        );
+
+        // Mark completed and delete checkpoint
+        checkpoint.mark_completed();
+        IndexCheckpoint::delete(&checkpoint_path)?;
+
+        Ok(stats)
+    }
+
     /// Index nodes using a generic graph context for semantic text building.
     ///
     /// This is the core indexing logic extracted to work with any GraphContext

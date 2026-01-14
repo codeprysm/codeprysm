@@ -29,6 +29,7 @@
 //! }
 //! ```
 
+pub mod checkpoint;
 pub mod client;
 pub mod embeddings;
 pub mod error;
@@ -65,4 +66,10 @@ pub use embeddings::{
     create_provider, validate_dimension, AzureMLAuth, AzureMLConfig, AzureMLProvider,
     EmbeddingConfig, EmbeddingProvider, EmbeddingProviderType, LocalProvider, OpenAIConfig,
     OpenAIProvider, ProviderStatus, EXPECTED_DIM,
+};
+
+// Re-export checkpoint types
+pub use checkpoint::{
+    compute_manifest_hash, CheckpointError, CheckpointStats, IndexCheckpoint, IndexState,
+    ResumeValidation, CHECKPOINT_VERSION,
 };
