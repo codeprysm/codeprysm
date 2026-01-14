@@ -1176,7 +1176,10 @@ impl LazyGraphManager {
 
             // Call the callback
             callback(&partition_id, nodes).map_err(|e| {
-                LazyGraphError::Manifest(format!("Callback error for partition {}: {}", partition_id, e))
+                LazyGraphError::Manifest(format!(
+                    "Callback error for partition {}: {}",
+                    partition_id, e
+                ))
             })?;
         }
 
@@ -1189,7 +1192,10 @@ impl LazyGraphManager {
     /// container nodes that shouldn't be indexed for semantic search.
     ///
     /// Returns the total number of indexable nodes processed across all partitions.
-    pub fn for_each_partition_indexable<F, E>(&self, mut callback: F) -> Result<usize, LazyGraphError>
+    pub fn for_each_partition_indexable<F, E>(
+        &self,
+        mut callback: F,
+    ) -> Result<usize, LazyGraphError>
     where
         F: FnMut(&str, Vec<Node>) -> Result<(), E>,
         E: std::error::Error + Send + Sync + 'static,
@@ -1216,7 +1222,10 @@ impl LazyGraphManager {
             let count = indexable_nodes.len();
 
             callback(&partition_id, indexable_nodes).map_err(|e| {
-                LazyGraphError::Manifest(format!("Callback error for partition {}: {}", partition_id, e))
+                LazyGraphError::Manifest(format!(
+                    "Callback error for partition {}: {}",
+                    partition_id, e
+                ))
             })?;
 
             total_processed += count;

@@ -258,11 +258,13 @@ pub async fn execute(args: InitArgs, global: GlobalOptions) -> Result<()> {
     } else {
         // Resuming - get node count from existing manifest for streaming decision
         if let Ok(manager) = LazyGraphManager::open(&prism_dir) {
-            node_count_for_streaming = manager
-                .get_total_indexable_node_count()
-                .unwrap_or(10_001); // Default to streaming if count fails
+            node_count_for_streaming = manager.get_total_indexable_node_count().unwrap_or(10_001);
+            // Default to streaming if count fails
         }
-        print_info("Skipping graph generation (using existing partitions)", quiet);
+        print_info(
+            "Skipping graph generation (using existing partitions)",
+            quiet,
+        );
     }
 
     // Index the graph if not skipped
@@ -321,10 +323,7 @@ pub async fn execute(args: InitArgs, global: GlobalOptions) -> Result<()> {
                     // This bounds memory usage regardless of graph size
                     let manager_result = if let Some(budget) = args.max_index_memory {
                         let budget_mb = budget / (1024 * 1024);
-                        print_info(
-                            &format!("Using memory budget: {}MB", budget_mb),
-                            quiet,
-                        );
+                        print_info(&format!("Using memory budget: {}MB", budget_mb), quiet);
                         LazyGraphManager::open_with_memory_budget(&prism_dir, Some(budget))
                     } else {
                         LazyGraphManager::open(&prism_dir)

@@ -30,8 +30,8 @@ pub use graph::{
 pub use merkle::{compute_file_hash, ChangeSet, ExclusionFilter, MerkleTreeManager, TreeStats};
 pub use parser::{
     extract_kind_from_node_id, generate_node_id, parse_node_id, CodeParser, ContainmentContext,
-    ContainmentEntry, ExtractedTag, ManifestLanguage, MetadataExtractor, ParserError,
-    QueryManager, SupportedLanguage, TagExtractor,
+    ContainmentEntry, ExtractedTag, ManifestLanguage, MetadataExtractor, ParserError, QueryManager,
+    SupportedLanguage, TagExtractor,
 };
 pub use tags::{parse_tag_string, TagCategory, TagParseError, TagParseResult};
 

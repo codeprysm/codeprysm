@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
-use encoding_rs::{WINDOWS_1252, UTF_16BE, UTF_16LE, UTF_8};
+use encoding_rs::{UTF_16BE, UTF_16LE, UTF_8, WINDOWS_1252};
 use ignore::WalkBuilder;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -954,7 +954,13 @@ impl GraphBuilder {
                 }
 
                 path.push(enc.name.as_str());
-                generate_node_id(file, &path[..path.len() - 1], path.last().unwrap(), enc_kind, None)
+                generate_node_id(
+                    file,
+                    &path[..path.len() - 1],
+                    path.last().unwrap(),
+                    enc_kind,
+                    None,
+                )
             }
         } else {
             // Reference is at file level
@@ -2108,7 +2114,10 @@ impl Agent {
         assert!(
             !uses_edges.is_empty(),
             "handle_retry should have USES edges. All USES edges: {:?}",
-            graph.edges_by_type(EdgeType::Uses).map(|(s, t, _)| (&s.id, &t.id)).collect::<Vec<_>>()
+            graph
+                .edges_by_type(EdgeType::Uses)
+                .map(|(s, t, _)| (&s.id, &t.id))
+                .collect::<Vec<_>>()
         );
     }
 }

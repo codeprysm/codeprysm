@@ -149,7 +149,8 @@ impl GraphContext for &PetCodeGraph {
     }
 
     fn get_outgoing_edges(&self, id: &str) -> Vec<(Node, EdgeData)> {
-        (*self).outgoing_edges(id)
+        (*self)
+            .outgoing_edges(id)
             .map(|(node, edge)| (node.clone(), edge.clone()))
             .collect()
     }

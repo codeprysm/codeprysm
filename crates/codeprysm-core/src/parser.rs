@@ -1956,7 +1956,13 @@ fn helper() -> i32 {
     #[test]
     fn test_generate_node_id_lambda_with_kind_and_line() {
         assert_eq!(
-            generate_node_id("src/utils.py", &["process"], "<lambda>", Some("function"), Some(42)),
+            generate_node_id(
+                "src/utils.py",
+                &["process"],
+                "<lambda>",
+                Some("function"),
+                Some(42)
+            ),
             "src/utils.py:process:<lambda>#function:42"
         );
     }
@@ -2034,10 +2040,22 @@ fn helper() -> i32 {
 
     #[test]
     fn test_extract_kind_from_node_id() {
-        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider#method"), Some("method"));
-        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider#field"), Some("field"));
-        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider"), None);
-        assert_eq!(extract_kind_from_node_id("src/utils.py:process:<lambda>#function:42"), Some("function"));
+        assert_eq!(
+            extract_kind_from_node_id("src/agent.rs:Agent:provider#method"),
+            Some("method")
+        );
+        assert_eq!(
+            extract_kind_from_node_id("src/agent.rs:Agent:provider#field"),
+            Some("field")
+        );
+        assert_eq!(
+            extract_kind_from_node_id("src/agent.rs:Agent:provider"),
+            None
+        );
+        assert_eq!(
+            extract_kind_from_node_id("src/utils.py:process:<lambda>#function:42"),
+            Some("function")
+        );
     }
 
     // Metadata Extraction Tests
@@ -2528,12 +2546,12 @@ project(my-project VERSION 1.0.0)
 #[cfg(test)]
 mod impl_target_tests {
     use super::*;
-    
+
     #[test]
     fn test_impl_target_extraction() {
         // Use the embedded queries for Rust
         let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
-        
+
         let source = r#"
 struct MyStruct;
 
@@ -2551,33 +2569,45 @@ fn standalone_function() {
     println!("Standalone");
 }
 "#;
-        
+
         let tags = extractor.extract(source).unwrap();
-        
+
         // Print all tags for debugging
         for tag in &tags {
-            println!("Tag: {} name={} impl_target={:?}", tag.tag, tag.name, tag.impl_target);
+            println!(
+                "Tag: {} name={} impl_target={:?}",
+                tag.tag, tag.name, tag.impl_target
+            );
         }
-        
+
         // Find the method tags
-        let method_tags: Vec<_> = tags.iter()
+        let method_tags: Vec<_> = tags
+            .iter()
             .filter(|t| t.tag.contains("callable.method"))
             .collect();
-        
+
         println!("\nMethod tags found: {}", method_tags.len());
         for tag in &method_tags {
             println!("  {} impl_target={:?}", tag.name, tag.impl_target);
-            assert!(tag.impl_target.is_some(), "Method {} should have impl_target", tag.name);
+            assert!(
+                tag.impl_target.is_some(),
+                "Method {} should have impl_target",
+                tag.name
+            );
             assert_eq!(tag.impl_target.as_ref().unwrap(), "MyStruct");
         }
-        
+
         // Check standalone function doesn't have impl_target
-        let function_tags: Vec<_> = tags.iter()
+        let function_tags: Vec<_> = tags
+            .iter()
             .filter(|t| t.tag.contains("callable.function") && t.name == "standalone_function")
             .collect();
-        
+
         for tag in &function_tags {
-            assert!(tag.impl_target.is_none(), "Standalone function should not have impl_target");
+            assert!(
+                tag.impl_target.is_none(),
+                "Standalone function should not have impl_target"
+            );
         }
     }
 
@@ -2596,15 +2626,20 @@ impl MyStruct {
         let tags = extractor.extract(source).unwrap();
 
         // Count name.definition.* tags for my_method
-        let my_method_def_tags: Vec<_> = tags.iter()
+        let my_method_def_tags: Vec<_> = tags
+            .iter()
             .filter(|t| t.tag.starts_with("name.definition.") && t.name == "my_method")
             .collect();
 
         // Should have exactly ONE name.definition.* tag (the method, not both method AND function)
         assert_eq!(
-            my_method_def_tags.len(), 1,
+            my_method_def_tags.len(),
+            1,
             "my_method should have exactly 1 name.definition tag, found: {:?}",
-            my_method_def_tags.iter().map(|t| &t.tag).collect::<Vec<_>>()
+            my_method_def_tags
+                .iter()
+                .map(|t| &t.tag)
+                .collect::<Vec<_>>()
         );
 
         // And it should be the callable.method tag with impl_target
@@ -2641,17 +2676,21 @@ impl Agent {
         // Print all definition tags for debugging
         println!("All definition tags:");
         for tag in tags.iter().filter(|t| t.tag.contains(".definition.")) {
-            println!("  {} name='{}' line={} impl_target={:?}",
-                tag.tag, tag.name, tag.start_line, tag.impl_target);
+            println!(
+                "  {} name='{}' line={} impl_target={:?}",
+                tag.tag, tag.name, tag.start_line, tag.impl_target
+            );
         }
 
         // Check provider method
-        let provider_tags: Vec<_> = tags.iter()
+        let provider_tags: Vec<_> = tags
+            .iter()
             .filter(|t| t.tag.starts_with("name.definition.") && t.name == "provider")
             .collect();
 
         assert_eq!(
-            provider_tags.len(), 1,
+            provider_tags.len(),
+            1,
             "provider should have exactly 1 definition tag, found: {:?}",
             provider_tags.iter().map(|t| &t.tag).collect::<Vec<_>>()
         );
@@ -2700,7 +2739,8 @@ impl Agent {
         }
 
         // Check for reference tags
-        let ref_tags: Vec<_> = tags.iter()
+        let ref_tags: Vec<_> = tags
+            .iter()
             .filter(|t| t.tag.contains(".reference."))
             .collect();
 
@@ -2710,14 +2750,15 @@ impl Agent {
         }
 
         // Should have references for provider() and other_method() calls
-        let provider_refs: Vec<_> = ref_tags.iter()
-            .filter(|t| t.name == "provider")
-            .collect();
+        let provider_refs: Vec<_> = ref_tags.iter().filter(|t| t.name == "provider").collect();
 
         assert!(
             !provider_refs.is_empty(),
             "Should have reference tag for self.provider() call, found refs: {:?}",
-            ref_tags.iter().map(|t| (&t.tag, &t.name)).collect::<Vec<_>>()
+            ref_tags
+                .iter()
+                .map(|t| (&t.tag, &t.name))
+                .collect::<Vec<_>>()
         );
     }
 }

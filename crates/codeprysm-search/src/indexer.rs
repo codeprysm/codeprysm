@@ -530,8 +530,9 @@ impl GraphIndexer {
         info!("Cleared existing points for repo");
 
         // Get total count for progress reporting (without loading nodes)
-        let total_nodes = manager.get_total_indexable_node_count()
-            .map_err(|e| crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e)))?;
+        let total_nodes = manager.get_total_indexable_node_count().map_err(|e| {
+            crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e))
+        })?;
         let total_partitions = manager.partition_count();
 
         info!(
@@ -716,47 +717,45 @@ impl GraphIndexer {
         // Try to load existing checkpoint (unless force is set)
         let existing_checkpoint = if !force {
             match IndexCheckpoint::load(&checkpoint_path)? {
-                Some(cp) => {
-                    match cp.is_resumable(&manifest_hash, &qdrant_url) {
-                        ResumeValidation::Valid => {
-                            info!(
-                                "Resuming from checkpoint: {}/{} partitions completed",
-                                cp.completed_partitions.len(),
-                                manager.partition_count()
-                            );
-                            Some(cp)
-                        }
-                        ResumeValidation::ManifestChanged { .. } => {
-                            info!("Manifest changed since checkpoint, starting fresh");
-                            None
-                        }
-                        ResumeValidation::QdrantUrlMismatch { old_url, new_url } => {
-                            info!(
-                                "Qdrant URL changed ({} -> {}), starting fresh",
-                                old_url, new_url
-                            );
-                            None
-                        }
-                        ResumeValidation::RepoMismatch { old_repo, new_repo } => {
-                            info!(
-                                "Repository changed ({} -> {}), starting fresh",
-                                old_repo, new_repo
-                            );
-                            None
-                        }
-                        ResumeValidation::AlreadyCompleted => {
-                            info!("Previous indexing completed, starting fresh");
-                            None
-                        }
-                        ResumeValidation::PreviousFailed { error } => {
-                            info!(
-                                "Previous indexing failed ({}), resuming from last completed partition",
-                                error
-                            );
-                            Some(cp)
-                        }
+                Some(cp) => match cp.is_resumable(&manifest_hash, &qdrant_url) {
+                    ResumeValidation::Valid => {
+                        info!(
+                            "Resuming from checkpoint: {}/{} partitions completed",
+                            cp.completed_partitions.len(),
+                            manager.partition_count()
+                        );
+                        Some(cp)
                     }
-                }
+                    ResumeValidation::ManifestChanged { .. } => {
+                        info!("Manifest changed since checkpoint, starting fresh");
+                        None
+                    }
+                    ResumeValidation::QdrantUrlMismatch { old_url, new_url } => {
+                        info!(
+                            "Qdrant URL changed ({} -> {}), starting fresh",
+                            old_url, new_url
+                        );
+                        None
+                    }
+                    ResumeValidation::RepoMismatch { old_repo, new_repo } => {
+                        info!(
+                            "Repository changed ({} -> {}), starting fresh",
+                            old_repo, new_repo
+                        );
+                        None
+                    }
+                    ResumeValidation::AlreadyCompleted => {
+                        info!("Previous indexing completed, starting fresh");
+                        None
+                    }
+                    ResumeValidation::PreviousFailed { error } => {
+                        info!(
+                            "Previous indexing failed ({}), resuming from last completed partition",
+                            error
+                        );
+                        Some(cp)
+                    }
+                },
                 None => None,
             }
         } else {
@@ -791,9 +790,9 @@ impl GraphIndexer {
         }
 
         // Get total count for progress reporting (without loading nodes)
-        let total_nodes = manager
-            .get_total_indexable_node_count()
-            .map_err(|e| crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e)))?;
+        let total_nodes = manager.get_total_indexable_node_count().map_err(|e| {
+            crate::error::SearchError::Graph(format!("Failed to count nodes: {}", e))
+        })?;
         let total_partitions = manager.partition_count();
 
         info!(
@@ -974,11 +973,7 @@ impl GraphIndexer {
     ///
     /// Uses `SemanticTextConfig::streaming()` to limit cross-partition context
     /// lookups and bound memory usage in streaming mode.
-    async fn index_nodes_with_context<G>(
-        &mut self,
-        nodes: &[Node],
-        graph: G,
-    ) -> Result<IndexStats>
+    async fn index_nodes_with_context<G>(&mut self, nodes: &[Node], graph: G) -> Result<IndexStats>
     where
         G: GraphContext,
     {

@@ -1015,7 +1015,7 @@ mod tests {
     fn test_find_utf8_truncation_point_chinese() {
         // Each Chinese character is 3 bytes in UTF-8
         let s = "你好世界"; // 12 bytes total (4 chars * 3 bytes)
-        // char_indices: (0,'你'), (3,'好'), (6,'世'), (9,'界')
+                            // char_indices: (0,'你'), (3,'好'), (6,'世'), (9,'界')
         assert_eq!(find_utf8_truncation_point(s, 3), 3); // First char (0+3=3) fits exactly
         assert_eq!(find_utf8_truncation_point(s, 4), 3); // 2nd char (3+3=6) doesn't fit in 4
         assert_eq!(find_utf8_truncation_point(s, 5), 3); // 2nd char (3+3=6) doesn't fit in 5
@@ -1028,7 +1028,7 @@ mod tests {
     fn test_find_utf8_truncation_point_emoji() {
         // Most emoji are 4 bytes in UTF-8
         let s = "🎉🎊🎁"; // 12 bytes total (3 emoji * 4 bytes)
-        // char_indices: (0,'🎉'), (4,'🎊'), (8,'🎁')
+                          // char_indices: (0,'🎉'), (4,'🎊'), (8,'🎁')
         assert_eq!(find_utf8_truncation_point(s, 4), 4); // First emoji (0+4=4) fits exactly
         assert_eq!(find_utf8_truncation_point(s, 5), 4); // 2nd emoji (4+4=8) doesn't fit in 5
         assert_eq!(find_utf8_truncation_point(s, 8), 8); // 2nd emoji (4+4=8) fits exactly
@@ -1038,7 +1038,7 @@ mod tests {
     #[test]
     fn test_find_utf8_truncation_point_mixed() {
         let s = "hello你好"; // 5 ASCII + 6 UTF-8 = 11 bytes
-        // char_indices: (0,'h'), (1,'e'), (2,'l'), (3,'l'), (4,'o'), (5,'你'), (8,'好')
+                             // char_indices: (0,'h'), (1,'e'), (2,'l'), (3,'l'), (4,'o'), (5,'你'), (8,'好')
         assert_eq!(find_utf8_truncation_point(s, 5), 5); // "hello" (last char at 4+1=5)
         assert_eq!(find_utf8_truncation_point(s, 8), 8); // "hello你" (5+3=8 fits exactly)
         assert_eq!(find_utf8_truncation_point(s, 7), 5); // 你 (5+3=8) doesn't fit in 7, stays at "hello"
@@ -1162,8 +1162,16 @@ mod tests {
 
         let result = builder.truncate_content(&content, 300);
         // The content is exactly 300 bytes, should not be truncated
-        assert!(!result.ends_with("..."), "Should not be truncated: {}", result);
-        assert!(result.contains("中"), "Should contain Chinese char: {}", result);
+        assert!(
+            !result.ends_with("..."),
+            "Should not be truncated: {}",
+            result
+        );
+        assert!(
+            result.contains("中"),
+            "Should contain Chinese char: {}",
+            result
+        );
     }
 
     // ========================================================================
