@@ -67,6 +67,8 @@ pub struct QdrantStore {
     client: Qdrant,
     /// Repository ID for multi-tenant filtering
     repo_id: String,
+    /// Qdrant server URL (stored for checkpoint validation)
+    url: String,
 }
 
 impl QdrantStore {
@@ -95,12 +97,20 @@ impl QdrantStore {
         Ok(Self {
             client,
             repo_id: repo_id.into(),
+            url: config.url,
         })
     }
 
     /// Get the repository ID
     pub fn repo_id(&self) -> &str {
         &self.repo_id
+    }
+
+    /// Get the Qdrant server URL
+    ///
+    /// Used for checkpoint validation to prevent mixing data across different Qdrant instances.
+    pub fn url(&self) -> &str {
+        &self.url
     }
 
     /// Check if a collection exists

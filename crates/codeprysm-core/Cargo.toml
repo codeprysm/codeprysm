@@ -49,6 +49,9 @@ dashmap = "5.5"
 # Hashing
 sha2.workspace = true
 
+# Encoding detection
+encoding_rs.workspace = true
+
 # Serialization
 serde.workspace = true
 serde_json.workspace = true

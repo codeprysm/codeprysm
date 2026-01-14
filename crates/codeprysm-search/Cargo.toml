@@ -45,6 +45,12 @@ governor = { workspace = true, optional = true }
 serde.workspace = true
 serde_json.workspace = true
 
+# Hashing (for checkpoint manifest validation)
+sha2.workspace = true
+
+# Date/Time (for checkpoint timestamps)
+chrono.workspace = true
+
 # Error handling
 thiserror.workspace = true
 anyhow.workspace = true

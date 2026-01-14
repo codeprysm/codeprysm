@@ -12,6 +12,20 @@
 //! - References (what the entity uses/calls)
 //! - Semantic keywords (detected patterns)
 //!
+//! ## Memory Considerations
+//!
+//! When using `LazyGraphManager` (streaming mode), each context lookup may load
+//! a different partition. For highly interconnected codebases, this can increase
+//! memory usage. Use `SemanticTextConfig::minimal()` to skip cross-partition
+//! context lookups when memory is constrained.
+//!
+//! ### Context Depth
+//!
+//! The builder limits traversal to depth=1 (single level):
+//! - Parent context: one level up in containment hierarchy
+//! - Children context: immediate children only (max 5)
+//! - References: direct outgoing edges only (max 5 per type)
+//!
 //! ## Example Output
 //!
 //! For a method:
@@ -23,87 +37,268 @@
 
 use std::collections::HashSet;
 
-use codeprysm_core::{EdgeType, Node, NodeType, PetCodeGraph};
+use codeprysm_core::{EdgeType, Node, NodeType};
 
-/// Maximum number of children to include in description
-const MAX_CHILDREN: usize = 5;
-/// Maximum number of references to include
-const MAX_REFERENCES: usize = 5;
+use crate::graph_context::GraphContext;
+
+/// Default maximum number of children to include in description
+const DEFAULT_MAX_CHILDREN: usize = 5;
+/// Default maximum number of references to include
+const DEFAULT_MAX_REFERENCES: usize = 5;
 /// Maximum content preview length
 const MAX_CONTENT_PREVIEW: usize = 300;
+
+/// Configuration for semantic text generation.
+///
+/// Controls which context is included and limits for memory-bounded operation.
+#[derive(Debug, Clone)]
+pub struct SemanticTextConfig {
+    /// Include parent context (containing class/module)
+    ///
+    /// When disabled, skips cross-partition parent lookups.
+    /// Default: true
+    pub include_parent_context: bool,
+
+    /// Include children context (methods/fields for containers)
+    ///
+    /// When disabled, skips cross-partition children lookups.
+    /// Default: true
+    pub include_children_context: bool,
+
+    /// Include inheritance context (extends/implements)
+    ///
+    /// When disabled, skips cross-partition inheritance lookups.
+    /// Default: true
+    pub include_inheritance_context: bool,
+
+    /// Include references context (calls/uses)
+    ///
+    /// When disabled, skips cross-partition reference lookups.
+    /// Default: true
+    pub include_references_context: bool,
+
+    /// Maximum number of children to include
+    ///
+    /// Limits cross-partition children resolution.
+    /// Default: 5
+    pub max_children: usize,
+
+    /// Maximum number of references to include (per type)
+    ///
+    /// Limits cross-partition reference resolution.
+    /// Default: 5
+    pub max_references: usize,
+}
+
+impl Default for SemanticTextConfig {
+    fn default() -> Self {
+        Self {
+            include_parent_context: true,
+            include_children_context: true,
+            include_inheritance_context: true,
+            include_references_context: true,
+            max_children: DEFAULT_MAX_CHILDREN,
+            max_references: DEFAULT_MAX_REFERENCES,
+        }
+    }
+}
+
+impl SemanticTextConfig {
+    /// Full context configuration (default).
+    ///
+    /// Includes all context lookups. Best for in-memory graphs (`PetCodeGraph`)
+    /// where cross-partition lookups are fast.
+    pub fn full() -> Self {
+        Self::default()
+    }
+
+    /// Minimal context configuration for memory-bounded streaming.
+    ///
+    /// Skips all cross-partition context lookups (parent, children, inheritance,
+    /// references). Use this with `LazyGraphManager` to minimize memory usage
+    /// at the cost of less rich semantic descriptions.
+    ///
+    /// The resulting text will still include:
+    /// - Entity metadata (modifiers, visibility, decorators)
+    /// - File context
+    /// - Semantic keywords
+    /// - Code preview
+    pub fn minimal() -> Self {
+        Self {
+            include_parent_context: false,
+            include_children_context: false,
+            include_inheritance_context: false,
+            include_references_context: false,
+            max_children: 0,
+            max_references: 0,
+        }
+    }
+
+    /// Streaming configuration with limited context.
+    ///
+    /// A balanced option for streaming mode that includes some context
+    /// but with reduced limits to bound memory usage.
+    ///
+    /// - Parent context: enabled (single lookup)
+    /// - Children context: disabled (could load many partitions)
+    /// - Inheritance context: disabled
+    /// - References context: enabled but limited to 5 per type
+    pub fn streaming() -> Self {
+        Self {
+            include_parent_context: true,
+            include_children_context: false,
+            include_inheritance_context: false,
+            include_references_context: true,
+            max_children: 0,
+            max_references: 5,
+        }
+    }
+}
 
 /// Builder for creating semantic text descriptions of code entities.
 ///
 /// Uses graph traversal to build rich context for better semantic search.
-pub struct SemanticTextBuilder<'a> {
-    graph: &'a PetCodeGraph,
+///
+/// # Type Parameters
+///
+/// * `G` - The graph context type. Can be:
+///   - `&PetCodeGraph` for in-memory graphs
+///   - `&LazyGraphManager` for streaming/lazy-loaded graphs
+///
+/// # Memory Usage
+///
+/// For streaming mode (`LazyGraphManager`), use `new_with_config()` with
+/// `SemanticTextConfig::streaming()` or `SemanticTextConfig::minimal()` to
+/// reduce cross-partition lookups and bound memory usage.
+///
+/// # Example
+///
+/// ```rust,ignore
+/// use codeprysm_search::{SemanticTextBuilder, SemanticTextConfig};
+/// use codeprysm_core::PetCodeGraph;
+///
+/// // Full context (default) for in-memory graphs
+/// let graph = PetCodeGraph::new();
+/// let builder = SemanticTextBuilder::new(&graph);
+/// let text = builder.build(&node, "fn main() {}");
+///
+/// // Streaming config for memory-bounded operation
+/// let lazy_manager = LazyGraphManager::open(&path)?;
+/// let builder = SemanticTextBuilder::new_with_config(&lazy_manager, SemanticTextConfig::streaming());
+/// ```
+pub struct SemanticTextBuilder<G: GraphContext> {
+    graph: G,
+    config: SemanticTextConfig,
 }
 
-impl<'a> SemanticTextBuilder<'a> {
-    /// Create a new semantic text builder with access to the full graph.
-    pub fn new(graph: &'a PetCodeGraph) -> Self {
-        Self { graph }
+impl<G: GraphContext> SemanticTextBuilder<G> {
+    /// Create a new semantic text builder with full context configuration.
+    ///
+    /// This is equivalent to `new_with_config(graph, SemanticTextConfig::full())`.
+    ///
+    /// The graph can be any type implementing `GraphContext`:
+    /// - `&PetCodeGraph` for full in-memory access
+    /// - `&LazyGraphManager` for memory-bounded streaming access
+    pub fn new(graph: G) -> Self {
+        Self {
+            graph,
+            config: SemanticTextConfig::full(),
+        }
+    }
+
+    /// Create a new semantic text builder with custom configuration.
+    ///
+    /// Use this with `SemanticTextConfig::streaming()` or `SemanticTextConfig::minimal()`
+    /// to reduce memory usage when using `LazyGraphManager`.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// // Minimal context for maximum memory savings
+    /// let builder = SemanticTextBuilder::new_with_config(
+    ///     &lazy_manager,
+    ///     SemanticTextConfig::minimal(),
+    /// );
+    ///
+    /// // Streaming config with limited context
+    /// let builder = SemanticTextBuilder::new_with_config(
+    ///     &lazy_manager,
+    ///     SemanticTextConfig::streaming(),
+    /// );
+    /// ```
+    pub fn new_with_config(graph: G, config: SemanticTextConfig) -> Self {
+        Self { graph, config }
     }
 
     /// Build semantic text for a node.
     ///
     /// The text is structured for optimal embedding:
     /// 1. Entity type and name with modifiers
-    /// 2. Inheritance/implementation info (for containers)
+    /// 2. Inheritance/implementation info (for containers) - if config.include_inheritance_context
     /// 3. Parameters (for callables)
-    /// 4. Children context (for containers)
-    /// 5. Parent context (containing class/module)
+    /// 4. Children context (for containers) - if config.include_children_context
+    /// 5. Parent context (containing class/module) - if config.include_parent_context
     /// 6. File context
-    /// 7. References (calls, uses)
+    /// 7. References (calls, uses) - if config.include_references_context
     /// 8. Semantic keywords
     /// 9. Code preview
+    ///
+    /// Context sections (2, 4, 5, 7) can be disabled via `SemanticTextConfig` to
+    /// reduce cross-partition lookups in streaming mode.
     pub fn build(&self, node: &Node, content: &str) -> String {
         let mut parts = Vec::new();
 
-        // 1. Build entity description with modifiers
+        // 1. Build entity description with modifiers (always included)
         parts.push(self.build_entity_description(node));
 
-        // 2. Add inheritance info for containers
-        if node.node_type == NodeType::Container {
+        // 2. Add inheritance info for containers (configurable)
+        if self.config.include_inheritance_context && node.node_type == NodeType::Container {
             if let Some(inheritance) = self.build_inheritance_context(node) {
                 parts.push(inheritance);
             }
         }
 
-        // 3. Add parameters for callables (extracted from content)
+        // 3. Add parameters for callables (always included - extracted from content, no graph lookup)
         if node.node_type == NodeType::Callable {
             if let Some(params) = self.extract_parameters(content) {
                 parts.push(format!("({})", params));
             }
         }
 
-        // 4. Add children context for containers
-        if node.node_type == NodeType::Container && !node.is_file() {
+        // 4. Add children context for containers (configurable)
+        if self.config.include_children_context
+            && node.node_type == NodeType::Container
+            && !node.is_file()
+        {
             if let Some(children_ctx) = self.build_children_context(node) {
                 parts.push(children_ctx);
             }
         }
 
-        // 5. Add parent context
-        if let Some(parent_ctx) = self.build_parent_context(node) {
-            parts.push(parent_ctx);
+        // 5. Add parent context (configurable)
+        if self.config.include_parent_context {
+            if let Some(parent_ctx) = self.build_parent_context(node) {
+                parts.push(parent_ctx);
+            }
         }
 
-        // 6. Add file context
+        // 6. Add file context (always included - no graph lookup)
         parts.push(format!("in file {}", self.format_file_path(&node.file)));
 
-        // 7. Add references context
-        if let Some(refs_ctx) = self.build_references_context(node) {
-            parts.push(refs_ctx);
+        // 7. Add references context (configurable)
+        if self.config.include_references_context {
+            if let Some(refs_ctx) = self.build_references_context(node) {
+                parts.push(refs_ctx);
+            }
         }
 
-        // 8. Add semantic keywords based on patterns
+        // 8. Add semantic keywords based on patterns (always included - no graph lookup)
         let keywords = self.extract_semantic_keywords(node, content);
         if !keywords.is_empty() {
             parts.push(format!("related to: {}", keywords.join(", ")));
         }
 
-        // 9. Add content preview (truncated)
+        // 9. Add content preview (always included - no graph lookup)
         let preview = self.truncate_content(content, MAX_CONTENT_PREVIEW);
         if !preview.is_empty() {
             parts.push(format!("code: {}", preview));
@@ -210,7 +405,7 @@ impl<'a> SemanticTextBuilder<'a> {
         let mut implements = Vec::new();
 
         // Look at outgoing USES edges from this node
-        for (target, edge_data) in self.graph.outgoing_edges(&node.id) {
+        for (target, edge_data) in self.graph.get_outgoing_edges(&node.id) {
             if edge_data.edge_type == EdgeType::Uses {
                 // Check if target is a type reference
                 if target.node_type == NodeType::Container {
@@ -243,25 +438,32 @@ impl<'a> SemanticTextBuilder<'a> {
     /// Build children context for containers.
     ///
     /// Lists methods and fields contained in the class/struct.
+    /// The number of children is limited by `config.max_children` to bound
+    /// cross-partition lookups in streaming mode.
     fn build_children_context(&self, node: &Node) -> Option<String> {
+        let max_children = self.config.max_children;
+        if max_children == 0 {
+            return None;
+        }
+
         let mut methods = Vec::new();
         let mut fields = Vec::new();
         let mut properties = Vec::new();
 
-        for child in self.graph.children(&node.id) {
+        for child in self.graph.get_children(&node.id) {
             match child.node_type {
                 NodeType::Callable => {
-                    if methods.len() < MAX_CHILDREN {
+                    if methods.len() < max_children {
                         methods.push(child.name.clone());
                     }
                 }
                 NodeType::Data => {
                     let kind = child.kind.as_deref().unwrap_or("");
                     if kind == "property" {
-                        if properties.len() < MAX_CHILDREN {
+                        if properties.len() < max_children {
                             properties.push(child.name.clone());
                         }
-                    } else if fields.len() < MAX_CHILDREN {
+                    } else if fields.len() < max_children {
                         fields.push(child.name.clone());
                     }
                 }
@@ -296,13 +498,13 @@ impl<'a> SemanticTextBuilder<'a> {
             return None;
         }
 
-        if let Some(parent) = self.graph.parent(&node.id) {
+        if let Some(parent) = self.graph.get_parent(&node.id) {
             // Skip if parent is just a file
             if parent.is_file() {
                 return None;
             }
 
-            let parent_type = self.get_type_descriptor(parent);
+            let parent_type = self.get_type_descriptor(&parent);
             Some(format!("in {} {}", parent_type, parent.name))
         } else {
             None
@@ -312,26 +514,33 @@ impl<'a> SemanticTextBuilder<'a> {
     /// Build references context.
     ///
     /// Lists what the entity calls/uses.
+    /// The number of references per type is limited by `config.max_references`
+    /// to bound cross-partition lookups in streaming mode.
     fn build_references_context(&self, node: &Node) -> Option<String> {
+        let max_references = self.config.max_references;
+        if max_references == 0 {
+            return None;
+        }
+
         let mut calls = Vec::new();
         let mut uses_types = Vec::new();
         let mut uses_data = Vec::new();
 
-        for (target, edge_data) in self.graph.outgoing_edges(&node.id) {
+        for (target, edge_data) in self.graph.get_outgoing_edges(&node.id) {
             if edge_data.edge_type == EdgeType::Uses {
                 match target.node_type {
                     NodeType::Callable => {
-                        if calls.len() < MAX_REFERENCES {
+                        if calls.len() < max_references {
                             calls.push(target.name.clone());
                         }
                     }
                     NodeType::Container if !target.is_file() => {
-                        if uses_types.len() < MAX_REFERENCES {
+                        if uses_types.len() < max_references {
                             uses_types.push(target.name.clone());
                         }
                     }
                     NodeType::Data => {
-                        if uses_data.len() < MAX_REFERENCES {
+                        if uses_data.len() < max_references {
                             uses_data.push(target.name.clone());
                         }
                     }
@@ -585,7 +794,7 @@ fn find_utf8_truncation_point(s: &str, max_bytes: usize) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use codeprysm_core::{EdgeData, NodeMetadata};
+    use codeprysm_core::{EdgeData, NodeMetadata, PetCodeGraph};
 
     fn create_test_graph() -> PetCodeGraph {
         let mut graph = PetCodeGraph::new();
@@ -955,5 +1164,81 @@ mod tests {
         // The content is exactly 300 bytes, should not be truncated
         assert!(!result.ends_with("..."), "Should not be truncated: {}", result);
         assert!(result.contains("中"), "Should contain Chinese char: {}", result);
+    }
+
+    // ========================================================================
+    // SemanticTextConfig Tests
+    // ========================================================================
+
+    #[test]
+    fn test_config_full_default() {
+        let config = SemanticTextConfig::full();
+        assert!(config.include_parent_context);
+        assert!(config.include_children_context);
+        assert!(config.include_inheritance_context);
+        assert!(config.include_references_context);
+        assert_eq!(config.max_children, DEFAULT_MAX_CHILDREN);
+        assert_eq!(config.max_references, DEFAULT_MAX_REFERENCES);
+    }
+
+    #[test]
+    fn test_config_minimal() {
+        let config = SemanticTextConfig::minimal();
+        assert!(!config.include_parent_context);
+        assert!(!config.include_children_context);
+        assert!(!config.include_inheritance_context);
+        assert!(!config.include_references_context);
+        assert_eq!(config.max_children, 0);
+        assert_eq!(config.max_references, 0);
+    }
+
+    #[test]
+    fn test_config_streaming() {
+        let config = SemanticTextConfig::streaming();
+        // Streaming enables parent and references but not children/inheritance
+        assert!(config.include_parent_context);
+        assert!(!config.include_children_context);
+        assert!(!config.include_inheritance_context);
+        assert!(config.include_references_context);
+        assert_eq!(config.max_children, 0);
+        assert_eq!(config.max_references, 5);
+    }
+
+    #[test]
+    fn test_minimal_config_skips_context() {
+        let graph = create_test_graph();
+        let builder = SemanticTextBuilder::new_with_config(&graph, SemanticTextConfig::minimal());
+
+        let method_node = graph.get_node("test.py:MyClass:process").unwrap();
+        let content = "def process(): pass";
+        let result = builder.build(method_node, content);
+
+        // Should NOT contain parent context (minimal mode skips it)
+        assert!(
+            !result.contains("in class MyClass"),
+            "Minimal config should skip parent context: {}",
+            result
+        );
+        // Should still have entity description and file context
+        assert!(result.contains("method"), "Should have entity type");
+        assert!(result.contains("process"), "Should have entity name");
+        assert!(result.contains("in file"), "Should have file context");
+    }
+
+    #[test]
+    fn test_full_config_includes_context() {
+        let graph = create_test_graph();
+        let builder = SemanticTextBuilder::new_with_config(&graph, SemanticTextConfig::full());
+
+        let method_node = graph.get_node("test.py:MyClass:process").unwrap();
+        let content = "def process(): pass";
+        let result = builder.build(method_node, content);
+
+        // Full config should include parent context
+        assert!(
+            result.contains("in class MyClass"),
+            "Full config should include parent context: {}",
+            result
+        );
     }
 }

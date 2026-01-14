@@ -335,6 +335,25 @@ impl PartitionConnection {
         Ok(count as usize)
     }
 
+    /// Get indexable node count (excludes file and repository nodes)
+    ///
+    /// This counts only nodes that should be indexed for semantic search:
+    /// - Excludes Container nodes with kind='file' (file nodes)
+    /// - Excludes Container nodes with kind='repository' (repository root nodes)
+    ///
+    /// This is more efficient than loading all nodes and filtering in memory.
+    pub fn indexable_node_count(&self) -> Result<usize, PartitionError> {
+        let count: i64 = self.conn.query_row(
+            r#"
+            SELECT COUNT(*) FROM nodes
+            WHERE NOT (node_type = 'Container' AND (kind = 'file' OR kind = 'repository'))
+            "#,
+            [],
+            |row| row.get(0),
+        )?;
+        Ok(count as usize)
+    }
+
     /// Convert a database row to a Node
     fn row_to_node(row: &rusqlite::Row<'_>) -> SqliteResult<Node> {
         let node_type_str: String = row.get(2)?;

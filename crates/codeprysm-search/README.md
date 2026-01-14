@@ -47,6 +47,51 @@ for result in results {
 }
 ```
 
+## Memory-Efficient Indexing
+
+For large repositories (>10K nodes), use streaming mode to bound memory usage:
+
+```rust
+use codeprysm_search::GraphIndexer;
+use codeprysm_core::lazy::manager::LazyGraphManager;
+
+// Open graph with memory budget
+let manager = LazyGraphManager::open_with_memory_budget(
+    &prism_dir,
+    Some(512 * 1024 * 1024), // 512MB
+)?;
+
+// Stream index partition-by-partition
+let stats = indexer.index_graph_lazy(&manager).await?;
+println!(
+    "Indexed {} nodes across {} partitions",
+    stats.total_indexed,
+    stats.partitions_processed
+);
+```
+
+### CLI Usage
+
+```bash
+# Auto-detect streaming mode for large repos
+codeprysm init
+
+# Force streaming mode
+codeprysm init --streaming on
+
+# With memory budget
+codeprysm init --streaming on --max-index-memory 8GB
+```
+
+### Memory Comparison
+
+| Mode | Memory Usage | Best For |
+|------|--------------|----------|
+| In-memory | O(total_nodes) | Small repos (<10K nodes) |
+| Streaming | O(max_partition) | Large repos, constrained memory |
+
+A 50K-node repo uses ~50GB in-memory but <500MB streaming.
+
 ## GPU Acceleration
 
 GPU provides 7-9x faster inference for embedding generation:

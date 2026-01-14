@@ -16,6 +16,7 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
+use encoding_rs::{WINDOWS_1252, UTF_16BE, UTF_16LE, UTF_8};
 use ignore::WalkBuilder;
 use thiserror::Error;
 use tracing::{debug, info, warn};
@@ -55,6 +56,50 @@ pub enum BuilderError {
     /// No supported files found
     #[error("No supported files found in directory: {0}")]
     NoFilesFound(PathBuf),
+}
+
+// ============================================================================
+// File Reading with Encoding Detection
+// ============================================================================
+
+/// Read a file with automatic encoding detection.
+///
+/// Supports:
+/// - UTF-8 (with or without BOM)
+/// - UTF-16 LE/BE (with BOM)
+/// - Windows-1252 (fallback for "ANSI" encoded files)
+fn read_file_with_encoding(path: &Path) -> std::io::Result<String> {
+    let bytes = std::fs::read(path)?;
+
+    // Check for BOM (Byte Order Mark)
+    if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        // UTF-8 with BOM
+        let (result, _, had_errors) = UTF_8.decode(&bytes[3..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    } else if bytes.starts_with(&[0xFF, 0xFE]) {
+        // UTF-16 LE with BOM
+        let (result, _, had_errors) = UTF_16LE.decode(&bytes[2..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    } else if bytes.starts_with(&[0xFE, 0xFF]) {
+        // UTF-16 BE with BOM
+        let (result, _, had_errors) = UTF_16BE.decode(&bytes[2..]);
+        if !had_errors {
+            return Ok(result.into_owned());
+        }
+    }
+
+    // Try UTF-8 first (most common)
+    if let Ok(s) = std::str::from_utf8(&bytes) {
+        return Ok(s.to_string());
+    }
+
+    // Fallback to Windows-1252 (never fails, covers all 256 byte values)
+    let (result, _, _) = WINDOWS_1252.decode(&bytes);
+    Ok(result.into_owned())
 }
 
 // ============================================================================
@@ -551,8 +596,8 @@ impl GraphBuilder {
             None => return Ok(()), // Skip unsupported files
         };
 
-        // Read file content
-        let source = std::fs::read_to_string(file_path)?;
+        // Read file content (with encoding detection for non-UTF-8 files)
+        let source = read_file_with_encoding(file_path)?;
 
         // Compute file hash
         let file_hash = compute_file_hash(file_path)?;
@@ -661,12 +706,14 @@ impl GraphBuilder {
                 continue;
             }
 
-            // Generate node ID
+            // Generate node ID with kind suffix for disambiguation
+            let kind_str = tag_info.kind.as_ref().map(|k| k.as_str());
             let node_id = generate_node_id(
                 rel_path,
                 &containment_path,
                 &tag.name,
-                Some(tag.line_number()),
+                kind_str,
+                None, // Line number only needed for lambdas
             );
 
             // Add to definitions dictionary
@@ -827,6 +874,8 @@ impl GraphBuilder {
         file: &str,
     ) -> String {
         // Find the innermost enclosing definition (use containment lines for proper nesting)
+        // When multiple tags match the same location (e.g., method matched as both
+        // callable.method and callable.function), prefer the one with impl_target set.
         let mut enclosing: Option<&crate::parser::ExtractedTag> = None;
 
         for tag in definition_tags {
@@ -843,8 +892,19 @@ impl GraphBuilder {
                         if let Some(current) = enclosing {
                             let current_start = current.containment_start_line();
                             let current_end = current.containment_end_line();
-                            if tag_start >= current_start && tag_end <= current_end {
+                            let is_narrower = tag_start > current_start || tag_end < current_end;
+                            let is_same_range =
+                                tag_start == current_start && tag_end == current_end;
+
+                            if is_narrower {
+                                // Strictly narrower range - always prefer
                                 enclosing = Some(tag);
+                            } else if is_same_range {
+                                // Same range - prefer tag with impl_target (for Rust methods
+                                // that are captured as both callable.method and callable.function)
+                                if tag.impl_target.is_some() && current.impl_target.is_none() {
+                                    enclosing = Some(tag);
+                                }
                             }
                         } else {
                             enclosing = Some(tag);
@@ -856,28 +916,46 @@ impl GraphBuilder {
 
         // Build containment path for the enclosing entity
         if let Some(enc) = enclosing {
-            let mut path = Vec::new();
-            let enc_start = enc.containment_start_line();
-            let enc_end = enc.containment_end_line();
+            // Parse the enclosing tag to get its kind
+            let tag_string = normalize_tag_string(&enc.tag);
+            let enc_kind = parse_tag_string(&tag_string)
+                .ok()
+                .and_then(|info| info.kind.as_ref().map(|k| k.as_str()));
 
-            // Find all parents of the enclosing definition
-            for tag in definition_tags {
-                let tag_start = tag.containment_start_line();
-                let tag_end = tag.containment_end_line();
-                if tag_start < enc_start && tag_end >= enc_end {
-                    let tag_string = normalize_tag_string(&tag.tag);
-                    if let Ok(info) = parse_tag_string(&tag_string) {
-                        if info.node_type == NodeType::Container
-                            || info.node_type == NodeType::Callable
-                        {
-                            path.push(tag.name.as_str());
+            // Check if the enclosing definition is a method in an impl block.
+            // Methods in impl blocks have impl_target set (e.g., "RetryManager" for
+            // `impl RetryManager { fn handle_retry_logic() {} }`).
+            // In this case, we use the impl type as the parent, matching how the
+            // method's node ID was generated during definition processing.
+            if let Some(impl_type) = &enc.impl_target {
+                // For methods in impl blocks, containment path is just [impl_type]
+                // This matches how node IDs are generated at lines 645-657
+                generate_node_id(file, &[impl_type.as_str()], &enc.name, enc_kind, None)
+            } else {
+                // Normal containment tracking for definitions not in impl blocks
+                let mut path = Vec::new();
+                let enc_start = enc.containment_start_line();
+                let enc_end = enc.containment_end_line();
+
+                // Find all parents of the enclosing definition
+                for tag in definition_tags {
+                    let tag_start = tag.containment_start_line();
+                    let tag_end = tag.containment_end_line();
+                    if tag_start < enc_start && tag_end >= enc_end {
+                        let tag_string = normalize_tag_string(&tag.tag);
+                        if let Ok(info) = parse_tag_string(&tag_string) {
+                            if info.node_type == NodeType::Container
+                                || info.node_type == NodeType::Callable
+                            {
+                                path.push(tag.name.as_str());
+                            }
                         }
                     }
                 }
-            }
 
-            path.push(enc.name.as_str());
-            generate_node_id(file, &path[..path.len() - 1], path.last().unwrap(), None)
+                path.push(enc.name.as_str());
+                generate_node_id(file, &path[..path.len() - 1], path.last().unwrap(), enc_kind, None)
+            }
         } else {
             // Reference is at file level
             file.to_string()
@@ -1155,7 +1233,7 @@ impl ComponentBuilder {
         root: &Path,
         repo_name: &str,
     ) -> Result<Option<DiscoveredComponent>, BuilderError> {
-        let content = std::fs::read_to_string(path)?;
+        let content = read_file_with_encoding(path)?;
         let rel_path = path
             .strip_prefix(root)
             .unwrap_or(path)
@@ -1934,5 +2012,103 @@ mod tests {
         assert_eq!(target.id, "component:repo:packages/utils");
         assert_eq!(data.ident, Some("utils".to_string()));
         assert_eq!(data.version_spec, Some("path:../utils".to_string()));
+    }
+
+    #[test]
+    fn test_find_enclosing_context_for_impl_method() {
+        use crate::parser::{SupportedLanguage, TagExtractor};
+
+        let source = r#"
+struct Agent;
+
+impl Agent {
+    fn handle_retry_logic(&self) {
+        self.reset_retry_attempts();
+    }
+
+    fn reset_retry_attempts(&self) {}
+}
+"#;
+
+        let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
+        let tags = extractor.extract(source).unwrap();
+
+        // Get definition tags (filtered like the builder does)
+        let definition_tags: Vec<_> = tags
+            .iter()
+            .filter(|t| t.tag.starts_with("name.") && t.tag.contains(".definition."))
+            .collect();
+
+        // Find the reference inside handle_retry_logic (line 6: self.reset_retry_attempts())
+        // Line numbers are 0-indexed, so line 6 is where reset_retry_attempts() is called
+        let reference_line = 5; // 0-indexed line with the call
+
+        let builder = GraphBuilder::new_with_embedded_queries();
+        let source_id = builder.find_enclosing_context(&definition_tags, reference_line, "test.rs");
+
+        // The source_id should be "test.rs:Agent:handle_retry_logic#method" because the reference
+        // is inside an impl method. NOT "test.rs:handle_retry_logic" (missing impl type).
+        assert!(
+            source_id.contains(":Agent:"),
+            "source_id should include impl type 'Agent', got: {}",
+            source_id
+        );
+        assert_eq!(
+            source_id, "test.rs:Agent:handle_retry_logic#method",
+            "source_id should be test.rs:Agent:handle_retry_logic#method"
+        );
+    }
+
+    #[test]
+    fn test_uses_edges_for_impl_methods() {
+        use tempfile::TempDir;
+
+        // Create a temporary Rust file with impl methods that call each other
+        let temp_dir = TempDir::new().unwrap();
+        let rust_file = temp_dir.path().join("test.rs");
+        let source = r#"
+struct Agent;
+
+impl Agent {
+    fn handle_retry(&self) {
+        self.reset();
+    }
+
+    fn reset(&self) {}
+}
+"#;
+        std::fs::write(&rust_file, source).unwrap();
+
+        // Build graph from the file
+        let mut builder = GraphBuilder::new_with_embedded_queries();
+        let graph = builder.build_from_directory(temp_dir.path()).unwrap();
+
+        // Check that nodes exist with correct IDs (including #method suffix)
+        let handle_retry_id = "test.rs:Agent:handle_retry#method";
+        let reset_id = "test.rs:Agent:reset#method";
+
+        assert!(
+            graph.contains_node(handle_retry_id),
+            "Node {} should exist. Available nodes: {:?}",
+            handle_retry_id,
+            graph.iter_nodes().map(|n| &n.id).collect::<Vec<_>>()
+        );
+        assert!(
+            graph.contains_node(reset_id),
+            "Node {} should exist",
+            reset_id
+        );
+
+        // Check USES edges - handle_retry should have a USES edge to reset
+        let uses_edges: Vec<_> = graph
+            .edges_by_type(EdgeType::Uses)
+            .filter(|(src, _, _)| src.id == handle_retry_id)
+            .collect();
+
+        assert!(
+            !uses_edges.is_empty(),
+            "handle_retry should have USES edges. All USES edges: {:?}",
+            graph.edges_by_type(EdgeType::Uses).map(|(s, t, _)| (&s.id, &t.id)).collect::<Vec<_>>()
+        );
     }
 }

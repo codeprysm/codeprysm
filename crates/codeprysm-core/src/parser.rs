@@ -692,6 +692,7 @@ impl std::fmt::Display for ContainmentContext {
 /// * `file_path` - Relative file path (e.g., "src/models.py")
 /// * `containment_stack` - Stack of parent entity names
 /// * `entity_name` - Name of the entity
+/// * `kind` - Entity kind for disambiguation (e.g., "method", "field")
 /// * `line` - Line number for anonymous entities (e.g., lambdas)
 ///
 /// # Examples
@@ -699,12 +700,21 @@ impl std::fmt::Display for ContainmentContext {
 /// ```
 /// use codeprysm_core::parser::generate_node_id;
 ///
+/// // Without kind - backward compatible
 /// assert_eq!(
-///     generate_node_id("src/models.py", &["User"], "save", None),
+///     generate_node_id("src/models.py", &["User"], "save", None, None),
 ///     "src/models.py:User:save"
 /// );
+///
+/// // With kind suffix for disambiguation
 /// assert_eq!(
-///     generate_node_id("src/utils.py", &["process"], "<lambda>", Some(42)),
+///     generate_node_id("src/agent.rs", &["Agent"], "provider", Some("method"), None),
+///     "src/agent.rs:Agent:provider#method"
+/// );
+///
+/// // Lambda with line number
+/// assert_eq!(
+///     generate_node_id("src/utils.py", &["process"], "<lambda>", None, Some(42)),
 ///     "src/utils.py:process:<lambda>:42"
 /// );
 /// ```
@@ -712,45 +722,103 @@ pub fn generate_node_id(
     file_path: &str,
     containment_stack: &[&str],
     entity_name: &str,
+    kind: Option<&str>,
     line: Option<usize>,
 ) -> String {
     let mut components = vec![file_path];
     components.extend(containment_stack);
+    components.push(entity_name);
+    let base = components.join(":");
 
-    // Handle anonymous entities with line numbers
+    // Handle anonymous entities with line numbers (e.g., lambdas)
     if entity_name.starts_with('<') && entity_name.ends_with('>') {
         if let Some(line_num) = line {
-            components.push(entity_name);
-            return format!("{}:{}", components.join(":"), line_num);
+            return match kind {
+                Some(k) => format!("{}#{}:{}", base, k, line_num),
+                None => format!("{}:{}", base, line_num),
+            };
         }
     }
 
-    components.push(entity_name);
-    components.join(":")
+    // Add kind suffix if provided (e.g., #method, #field)
+    match kind {
+        Some(k) => format!("{}#{}", base, k),
+        None => base,
+    }
 }
 
 /// Parse a node ID into its components.
 ///
 /// Returns the file path, containment stack, and entity name.
+/// Handles the `#kind` suffix by stripping it from the entity name.
+/// Handles the trailing `:line` suffix for lambdas.
 ///
 /// # Returns
 ///
 /// Tuple of (file_path, containment_stack, entity_name)
+/// The entity_name has any `#kind` suffix removed.
 ///
 /// # Errors
 ///
 /// Returns `None` if the node ID format is invalid.
 pub fn parse_node_id(node_id: &str) -> Option<(&str, Vec<&str>, &str)> {
-    let parts: Vec<&str> = node_id.split(':').collect();
+    // First, handle the #kind:line suffix pattern
+    // Format: "file:containment:<lambda>#kind:line" -> strip ":line" first
+    let working_id = if let Some(hash_pos) = node_id.rfind('#') {
+        let after_hash = &node_id[hash_pos + 1..];
+        // Check if there's a :line after #kind
+        if let Some(colon_pos) = after_hash.find(':') {
+            let potential_line = &after_hash[colon_pos + 1..];
+            if potential_line.chars().all(|c| c.is_ascii_digit()) {
+                // Strip the :line suffix
+                &node_id[..hash_pos + 1 + colon_pos]
+            } else {
+                node_id
+            }
+        } else {
+            node_id
+        }
+    } else {
+        node_id
+    };
+
+    let parts: Vec<&str> = working_id.split(':').collect();
     if parts.len() < 2 {
         return None;
     }
 
     let file_path = parts[0];
-    let entity_name = parts[parts.len() - 1];
+    let mut entity_name = parts[parts.len() - 1];
+
+    // Strip #kind suffix if present (e.g., "provider#method" -> "provider")
+    if let Some(hash_pos) = entity_name.find('#') {
+        entity_name = &entity_name[..hash_pos];
+    }
+
     let containment = parts[1..parts.len() - 1].to_vec();
 
     Some((file_path, containment, entity_name))
+}
+
+/// Extract the kind suffix from a node ID if present.
+///
+/// # Examples
+/// - `"file.rs:Foo:bar#method"` -> `Some("method")`
+/// - `"file.rs:Foo:bar"` -> `None`
+pub fn extract_kind_from_node_id(node_id: &str) -> Option<&str> {
+    // Kind is after the last # in the ID
+    if let Some(hash_pos) = node_id.rfind('#') {
+        let after_hash = &node_id[hash_pos + 1..];
+        // Make sure it's not a line number (which would contain only digits)
+        if !after_hash.chars().all(|c| c.is_ascii_digit()) {
+            // Handle case where there's a :line after #kind
+            if let Some(colon_pos) = after_hash.find(':') {
+                return Some(&after_hash[..colon_pos]);
+            }
+            return Some(after_hash);
+        }
+    }
+    None
 }
 
 // ============================================================================
@@ -864,7 +932,71 @@ impl TagExtractor {
             }
         }
 
+        // Deduplicate tags that identify the same entity (same name at same position).
+        // This can happen when tree-sitter patterns overlap, e.g., Rust methods are
+        // captured as both callable.method (with impl_target) and callable.function
+        // (without impl_target). We keep the more specific tag (the one with impl_target).
+        let tags = Self::deduplicate_tags(tags);
+
         Ok(tags)
+    }
+
+    /// Deduplicate tags that identify the same entity.
+    ///
+    /// When multiple tags have the same (name, start_line), they refer to the same
+    /// entity captured by overlapping patterns. We keep only the most specific tag,
+    /// preferring tags with impl_target set (for Rust methods in impl blocks).
+    fn deduplicate_tags(tags: Vec<ExtractedTag>) -> Vec<ExtractedTag> {
+        use std::collections::HashMap;
+
+        // Group tags by (name, start_line) - entities at the same position
+        let mut groups: HashMap<(String, usize), Vec<ExtractedTag>> = HashMap::new();
+        for tag in tags {
+            let key = (tag.name.clone(), tag.start_line);
+            groups.entry(key).or_default().push(tag);
+        }
+
+        // For each group, select the best tag based on specificity
+        let mut result = Vec::new();
+        for (_, mut group) in groups {
+            if group.len() == 1 {
+                result.push(group.pop().unwrap());
+            } else {
+                // Multiple tags for same entity - prefer more specific tags:
+                // 1. Tags with impl_target set (for Rust methods in impl blocks)
+                // 2. Tags with more specific kinds: constructor > method > macro > function
+                //    (constructor and method are more specific than generic function)
+                let best = group
+                    .into_iter()
+                    .max_by_key(|t| {
+                        let has_impl_target = if t.impl_target.is_some() { 100 } else { 0 };
+                        let kind_priority = Self::kind_priority(&t.tag);
+                        has_impl_target + kind_priority
+                    })
+                    .unwrap();
+                result.push(best);
+            }
+        }
+
+        // Sort by (start_line, start_col) to maintain consistent ordering
+        result.sort_by_key(|t| (t.start_line, t.start_col));
+        result
+    }
+
+    /// Get the priority of a kind for deduplication.
+    /// Higher priority means more specific - prefer constructor over method over function.
+    fn kind_priority(tag: &str) -> u8 {
+        if tag.ends_with(".constructor") {
+            4 // Most specific - explicit constructor
+        } else if tag.ends_with(".method") {
+            3 // Class/impl method
+        } else if tag.ends_with(".macro") {
+            2 // Macros
+        } else if tag.ends_with(".function") {
+            1 // Generic function - least specific
+        } else {
+            0 // Unknown or non-callable
+        }
     }
 }
 
@@ -1771,7 +1903,7 @@ fn helper() -> i32 {
     #[test]
     fn test_generate_node_id_simple() {
         assert_eq!(
-            generate_node_id("src/models.py", &[], "User", None),
+            generate_node_id("src/models.py", &[], "User", None, None),
             "src/models.py:User"
         );
     }
@@ -1779,7 +1911,7 @@ fn helper() -> i32 {
     #[test]
     fn test_generate_node_id_with_containment() {
         assert_eq!(
-            generate_node_id("src/models.py", &["User"], "save", None),
+            generate_node_id("src/models.py", &["User"], "save", None, None),
             "src/models.py:User:save"
         );
     }
@@ -1787,16 +1919,45 @@ fn helper() -> i32 {
     #[test]
     fn test_generate_node_id_nested_containment() {
         assert_eq!(
-            generate_node_id("src/models.py", &["Module", "Class"], "method", None),
+            generate_node_id("src/models.py", &["Module", "Class"], "method", None, None),
             "src/models.py:Module:Class:method"
+        );
+    }
+
+    #[test]
+    fn test_generate_node_id_with_kind() {
+        assert_eq!(
+            generate_node_id("src/models.py", &["User"], "save", Some("method"), None),
+            "src/models.py:User:save#method"
+        );
+    }
+
+    #[test]
+    fn test_generate_node_id_field_vs_method() {
+        // Field and method with same name should have different IDs
+        assert_eq!(
+            generate_node_id("src/agent.rs", &["Agent"], "provider", Some("field"), None),
+            "src/agent.rs:Agent:provider#field"
+        );
+        assert_eq!(
+            generate_node_id("src/agent.rs", &["Agent"], "provider", Some("method"), None),
+            "src/agent.rs:Agent:provider#method"
         );
     }
 
     #[test]
     fn test_generate_node_id_lambda_with_line() {
         assert_eq!(
-            generate_node_id("src/utils.py", &["process"], "<lambda>", Some(42)),
+            generate_node_id("src/utils.py", &["process"], "<lambda>", None, Some(42)),
             "src/utils.py:process:<lambda>:42"
+        );
+    }
+
+    #[test]
+    fn test_generate_node_id_lambda_with_kind_and_line() {
+        assert_eq!(
+            generate_node_id("src/utils.py", &["process"], "<lambda>", Some("function"), Some(42)),
+            "src/utils.py:process:<lambda>#function:42"
         );
     }
 
@@ -1804,7 +1965,7 @@ fn helper() -> i32 {
     fn test_generate_node_id_lambda_without_line() {
         // Lambda without line number doesn't get special treatment
         assert_eq!(
-            generate_node_id("src/utils.py", &["process"], "<lambda>", None),
+            generate_node_id("src/utils.py", &["process"], "<lambda>", None, None),
             "src/utils.py:process:<lambda>"
         );
     }
@@ -1845,6 +2006,38 @@ fn helper() -> i32 {
     #[test]
     fn test_parse_node_id_invalid() {
         assert!(parse_node_id("invalid").is_none());
+    }
+
+    #[test]
+    fn test_parse_node_id_with_kind_suffix() {
+        // parse_node_id should strip the #kind suffix
+        let result = parse_node_id("src/agent.rs:Agent:provider#method");
+        assert!(result.is_some());
+
+        let (file, containment, name) = result.unwrap();
+        assert_eq!(file, "src/agent.rs");
+        assert_eq!(containment, vec!["Agent"]);
+        assert_eq!(name, "provider");
+    }
+
+    #[test]
+    fn test_parse_node_id_with_kind_and_line() {
+        // Node ID with kind and line number (for lambdas)
+        let result = parse_node_id("src/utils.py:process:<lambda>#function:42");
+        assert!(result.is_some());
+
+        let (file, containment, name) = result.unwrap();
+        assert_eq!(file, "src/utils.py");
+        assert_eq!(containment, vec!["process"]);
+        assert_eq!(name, "<lambda>");
+    }
+
+    #[test]
+    fn test_extract_kind_from_node_id() {
+        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider#method"), Some("method"));
+        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider#field"), Some("field"));
+        assert_eq!(extract_kind_from_node_id("src/agent.rs:Agent:provider"), None);
+        assert_eq!(extract_kind_from_node_id("src/utils.py:process:<lambda>#function:42"), Some("function"));
     }
 
     // Metadata Extraction Tests
@@ -2329,5 +2522,202 @@ project(my-project VERSION 1.0.0)
         assert!(extensions.contains(&"csproj"));
         assert!(extensions.contains(&"vbproj"));
         assert!(extensions.contains(&"fsproj"));
+    }
+}
+
+#[cfg(test)]
+mod impl_target_tests {
+    use super::*;
+    
+    #[test]
+    fn test_impl_target_extraction() {
+        // Use the embedded queries for Rust
+        let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
+        
+        let source = r#"
+struct MyStruct;
+
+impl MyStruct {
+    fn my_method(&self) {
+        println!("Hello");
+    }
+    
+    fn another_method(&self) {
+        self.my_method();
+    }
+}
+
+fn standalone_function() {
+    println!("Standalone");
+}
+"#;
+        
+        let tags = extractor.extract(source).unwrap();
+        
+        // Print all tags for debugging
+        for tag in &tags {
+            println!("Tag: {} name={} impl_target={:?}", tag.tag, tag.name, tag.impl_target);
+        }
+        
+        // Find the method tags
+        let method_tags: Vec<_> = tags.iter()
+            .filter(|t| t.tag.contains("callable.method"))
+            .collect();
+        
+        println!("\nMethod tags found: {}", method_tags.len());
+        for tag in &method_tags {
+            println!("  {} impl_target={:?}", tag.name, tag.impl_target);
+            assert!(tag.impl_target.is_some(), "Method {} should have impl_target", tag.name);
+            assert_eq!(tag.impl_target.as_ref().unwrap(), "MyStruct");
+        }
+        
+        // Check standalone function doesn't have impl_target
+        let function_tags: Vec<_> = tags.iter()
+            .filter(|t| t.tag.contains("callable.function") && t.name == "standalone_function")
+            .collect();
+        
+        for tag in &function_tags {
+            assert!(tag.impl_target.is_none(), "Standalone function should not have impl_target");
+        }
+    }
+
+    #[test]
+    fn test_method_deduplication() {
+        // Verify that methods in impl blocks are NOT duplicated as both
+        // callable.method and callable.function (the function tag should be deduplicated)
+        let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
+
+        let source = r#"
+impl MyStruct {
+    fn my_method(&self) {}
+}
+"#;
+
+        let tags = extractor.extract(source).unwrap();
+
+        // Count name.definition.* tags for my_method
+        let my_method_def_tags: Vec<_> = tags.iter()
+            .filter(|t| t.tag.starts_with("name.definition.") && t.name == "my_method")
+            .collect();
+
+        // Should have exactly ONE name.definition.* tag (the method, not both method AND function)
+        assert_eq!(
+            my_method_def_tags.len(), 1,
+            "my_method should have exactly 1 name.definition tag, found: {:?}",
+            my_method_def_tags.iter().map(|t| &t.tag).collect::<Vec<_>>()
+        );
+
+        // And it should be the callable.method tag with impl_target
+        let tag = my_method_def_tags[0];
+        assert!(
+            tag.tag.contains("callable.method"),
+            "Tag should be callable.method, not callable.function: {}",
+            tag.tag
+        );
+        assert!(
+            tag.impl_target.is_some(),
+            "Method tag should have impl_target"
+        );
+    }
+
+    #[test]
+    fn test_async_method_deduplication() {
+        // Verify that async methods in impl blocks are correctly deduplicated
+        // This test mimics the real goose Agent::provider case
+        let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
+
+        let source = r#"
+impl Agent {
+    pub async fn provider(&self) -> i32 { 42 }
+
+    pub async fn is_frontend_tool(&self, name: &str) -> bool {
+        true
+    }
+}
+"#;
+
+        let tags = extractor.extract(source).unwrap();
+
+        // Print all definition tags for debugging
+        println!("All definition tags:");
+        for tag in tags.iter().filter(|t| t.tag.contains(".definition.")) {
+            println!("  {} name='{}' line={} impl_target={:?}",
+                tag.tag, tag.name, tag.start_line, tag.impl_target);
+        }
+
+        // Check provider method
+        let provider_tags: Vec<_> = tags.iter()
+            .filter(|t| t.tag.starts_with("name.definition.") && t.name == "provider")
+            .collect();
+
+        assert_eq!(
+            provider_tags.len(), 1,
+            "provider should have exactly 1 definition tag, found: {:?}",
+            provider_tags.iter().map(|t| &t.tag).collect::<Vec<_>>()
+        );
+
+        let provider_tag = provider_tags[0];
+        assert!(
+            provider_tag.tag.contains("callable.method"),
+            "provider tag should be callable.method, got: {}",
+            provider_tag.tag
+        );
+        assert!(
+            provider_tag.impl_target.is_some(),
+            "provider should have impl_target set"
+        );
+        assert_eq!(
+            provider_tag.impl_target.as_deref(),
+            Some("Agent"),
+            "provider impl_target should be 'Agent'"
+        );
+    }
+
+    #[test]
+    fn test_method_call_references_extracted() {
+        // Verify that method calls like self.provider() are extracted as references
+        let mut extractor = TagExtractor::from_embedded(SupportedLanguage::Rust).unwrap();
+
+        let source = r#"
+impl Agent {
+    fn provider(&self) -> i32 { 42 }
+
+    fn dispatch(&self) {
+        self.provider();
+        self.other_method();
+    }
+
+    fn other_method(&self) {}
+}
+"#;
+
+        let tags = extractor.extract(source).unwrap();
+
+        // Print all tags for debugging
+        println!("All tags:");
+        for tag in &tags {
+            println!("  {} name='{}' line={}", tag.tag, tag.name, tag.start_line);
+        }
+
+        // Check for reference tags
+        let ref_tags: Vec<_> = tags.iter()
+            .filter(|t| t.tag.contains(".reference."))
+            .collect();
+
+        println!("\nReference tags:");
+        for tag in &ref_tags {
+            println!("  {} name='{}' line={}", tag.tag, tag.name, tag.start_line);
+        }
+
+        // Should have references for provider() and other_method() calls
+        let provider_refs: Vec<_> = ref_tags.iter()
+            .filter(|t| t.name == "provider")
+            .collect();
+
+        assert!(
+            !provider_refs.is_empty(),
+            "Should have reference tag for self.provider() call, found refs: {:?}",
+            ref_tags.iter().map(|t| (&t.tag, &t.name)).collect::<Vec<_>>()
+        );
     }
 }

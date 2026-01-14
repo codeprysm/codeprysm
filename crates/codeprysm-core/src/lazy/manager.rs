@@ -1101,6 +1101,136 @@ impl LazyGraphManager {
     }
 
     // =========================================================================
+    // Streaming Iteration (Memory-Bounded Processing)
+    // =========================================================================
+
+    /// Get the total number of indexable nodes across all partitions.
+    ///
+    /// This queries each partition database without loading nodes into memory,
+    /// making it efficient for large repositories. Indexable nodes exclude
+    /// file and repository container nodes.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// let total = manager.get_total_indexable_node_count()?;
+    /// println!("Total indexable nodes: {}", total);
+    /// ```
+    pub fn get_total_indexable_node_count(&self) -> Result<usize, LazyGraphError> {
+        let mut total = 0;
+        for partition_id in self.manifest.partitions.keys() {
+            let db_path = self.partition_db_path(partition_id);
+            if db_path.exists() {
+                let conn = PartitionConnection::open(&db_path, partition_id)?;
+                total += conn.indexable_node_count()?;
+            }
+        }
+        Ok(total)
+    }
+
+    /// Process partitions one at a time with a callback function.
+    ///
+    /// This method provides memory-bounded iteration over all partitions.
+    /// For each partition:
+    /// 1. Load the partition into memory
+    /// 2. Call the callback with the partition ID and its nodes
+    /// 3. Unload the partition to free memory
+    ///
+    /// The callback receives `(partition_id, nodes)` and can return an error
+    /// to abort processing.
+    ///
+    /// # Memory Bounds
+    ///
+    /// At any time, only one partition's nodes are in memory (plus whatever
+    /// the callback holds). This enables processing arbitrarily large
+    /// repositories with bounded memory.
+    ///
+    /// # Example
+    ///
+    /// ```rust,ignore
+    /// manager.for_each_partition(|partition_id, nodes| {
+    ///     println!("Processing partition {} with {} nodes", partition_id, nodes.len());
+    ///     for node in &nodes {
+    ///         // Process node...
+    ///     }
+    ///     Ok(())
+    /// })?;
+    /// ```
+    pub fn for_each_partition<F, E>(&self, mut callback: F) -> Result<(), LazyGraphError>
+    where
+        F: FnMut(&str, Vec<Node>) -> Result<(), E>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let partition_ids: Vec<String> = self.manifest.partitions.keys().cloned().collect();
+
+        for partition_id in partition_ids {
+            // Open partition database directly (don't load into graph)
+            let db_path = self.partition_db_path(&partition_id);
+            if !db_path.exists() {
+                tracing::warn!("Partition database not found: {:?}", db_path);
+                continue;
+            }
+
+            let conn = PartitionConnection::open(&db_path, &partition_id)?;
+            let nodes = conn.query_all_nodes()?;
+
+            // Call the callback
+            callback(&partition_id, nodes).map_err(|e| {
+                LazyGraphError::Manifest(format!("Callback error for partition {}: {}", partition_id, e))
+            })?;
+        }
+
+        Ok(())
+    }
+
+    /// Process partitions with indexable nodes only (excludes file/repository nodes).
+    ///
+    /// Similar to `for_each_partition`, but filters out file and repository
+    /// container nodes that shouldn't be indexed for semantic search.
+    ///
+    /// Returns the total number of indexable nodes processed across all partitions.
+    pub fn for_each_partition_indexable<F, E>(&self, mut callback: F) -> Result<usize, LazyGraphError>
+    where
+        F: FnMut(&str, Vec<Node>) -> Result<(), E>,
+        E: std::error::Error + Send + Sync + 'static,
+    {
+        let partition_ids: Vec<String> = self.manifest.partitions.keys().cloned().collect();
+        let mut total_processed = 0;
+
+        for partition_id in partition_ids {
+            let db_path = self.partition_db_path(&partition_id);
+            if !db_path.exists() {
+                tracing::warn!("Partition database not found: {:?}", db_path);
+                continue;
+            }
+
+            let conn = PartitionConnection::open(&db_path, &partition_id)?;
+            let all_nodes = conn.query_all_nodes()?;
+
+            // Filter to indexable nodes only
+            let indexable_nodes: Vec<Node> = all_nodes
+                .into_iter()
+                .filter(|n| !n.is_file() && !n.is_repository())
+                .collect();
+
+            let count = indexable_nodes.len();
+
+            callback(&partition_id, indexable_nodes).map_err(|e| {
+                LazyGraphError::Manifest(format!("Callback error for partition {}: {}", partition_id, e))
+            })?;
+
+            total_processed += count;
+        }
+
+        Ok(total_processed)
+    }
+
+    /// Get the number of partitions
+    pub fn partition_count(&self) -> usize {
+        self.manifest.partitions.len()
+    }
+
+    // =========================================================================
     // Statistics
     // =========================================================================
 

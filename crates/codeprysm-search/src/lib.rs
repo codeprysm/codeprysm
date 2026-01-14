@@ -29,9 +29,11 @@
 //! }
 //! ```
 
+pub mod checkpoint;
 pub mod client;
 pub mod embeddings;
 pub mod error;
+pub mod graph_context;
 pub mod hybrid;
 pub mod indexer;
 pub mod schema;
@@ -49,7 +51,10 @@ pub use error::{Result, SearchError};
 pub use hybrid::{HybridSearchHit, HybridSearcher, QueryType, ScoringConfig, WeightPreset};
 pub use indexer::{GraphIndexer, IndexStats};
 pub use schema::{CodePoint, CollectionConfig, EntityPayload, SearchHit};
-pub use semantic_text::SemanticTextBuilder;
+pub use semantic_text::{SemanticTextBuilder, SemanticTextConfig};
+
+// Re-export graph context trait
+pub use graph_context::GraphContext;
 
 // Re-export legacy embeddings types for backward compatibility
 pub use embeddings_legacy::{
@@ -61,4 +66,10 @@ pub use embeddings::{
     create_provider, validate_dimension, AzureMLAuth, AzureMLConfig, AzureMLProvider,
     EmbeddingConfig, EmbeddingProvider, EmbeddingProviderType, LocalProvider, OpenAIConfig,
     OpenAIProvider, ProviderStatus, EXPECTED_DIM,
+};
+
+// Re-export checkpoint types
+pub use checkpoint::{
+    compute_manifest_hash, CheckpointError, CheckpointStats, IndexCheckpoint, IndexState,
+    ResumeValidation, CHECKPOINT_VERSION,
 };

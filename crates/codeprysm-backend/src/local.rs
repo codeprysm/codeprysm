@@ -535,97 +535,35 @@ impl Backend for LocalBackend {
         }
 
         info!(
-            "Indexing graph for '{}' using partition-by-partition approach",
+            "Indexing graph for '{}' using streaming memory-bounded approach with checkpoint support",
             self.repo_id
         );
 
-        // Ensure collections exist and clear existing points
-        indexer.store().ensure_collections().await?;
-        indexer.clear_repo_points().await?;
+        let prism_dir = self.prism_dir();
 
-        // Get partition IDs upfront
-        let partition_ids = {
+        // Use index_graph_lazy_resumable() for memory-bounded indexing with checkpoint/resume
+        // This handles:
+        // - Collection creation and conditional clearing (skip if resuming)
+        // - Checkpoint file read/write for resume capability
+        // - Partition-by-partition iteration with skip for completed partitions
+        // - Loading/unloading partitions
+        // - Streaming config for cross-partition context
+        let stats = {
             let guard = self.graph_manager.read().await;
             let manager = guard
                 .as_ref()
                 .ok_or_else(|| BackendError::with_context("indexing", "graph not loaded"))?;
-            manager.partition_ids()
+
+            indexer
+                .index_graph_lazy_resumable(manager, &prism_dir, force)
+                .await?
         };
 
-        let total_partitions = partition_ids.len();
-        info!("Found {} partitions to index", total_partitions);
-
-        let mut total_indexed = 0usize;
-
-        // Process each partition independently to minimize memory usage
-        for (idx, partition_id) in partition_ids.iter().enumerate() {
-            // Load partition and extract its nodes (clone to avoid holding lock)
-            let (nodes, graph_clone) = {
-                let guard = self.graph_manager.read().await;
-                let manager = guard
-                    .as_ref()
-                    .ok_or_else(|| BackendError::with_context("indexing", "graph not loaded"))?;
-
-                // Load the partition
-                manager.load_partition(partition_id).map_err(|e| {
-                    BackendError::with_context(
-                        "indexing",
-                        format!("Failed to load partition {}: {}", partition_id, e),
-                    )
-                })?;
-
-                // Get node IDs for this partition
-                let node_ids = manager
-                    .node_ids_in_partition(partition_id)
-                    .unwrap_or_default();
-
-                // Get actual nodes from graph
-                let graph_guard = manager.graph_read();
-                let nodes: Vec<_> = node_ids
-                    .iter()
-                    .filter_map(|id| graph_guard.get_node(id).cloned())
-                    .collect();
-
-                // Clone graph for SemanticTextBuilder context (needed for parent info)
-                // Note: This is still a full clone per partition - we could optimize further
-                // by loading only the current partition's data into a mini-graph
-                let graph_clone = (*graph_guard).clone();
-
-                (nodes, graph_clone)
-            };
-            // Lock is dropped here
-
-            if nodes.is_empty() {
-                continue;
-            }
-
-            // Index this partition's nodes
-            let stats = indexer.index_nodes(&nodes, &graph_clone).await?;
-            total_indexed += stats.total_indexed;
-
-            if (idx + 1) % 10 == 0 || idx == total_partitions - 1 {
-                info!(
-                    "Progress: {}/{} partitions, {} entities indexed",
-                    idx + 1,
-                    total_partitions,
-                    total_indexed
-                );
-            }
-
-            // Unload the partition to free memory
-            {
-                let guard = self.graph_manager.read().await;
-                if let Some(manager) = guard.as_ref() {
-                    manager.unload_partition(partition_id);
-                }
-            }
-        }
-
         info!(
-            "Indexed {} entities across {} partitions",
-            total_indexed, total_partitions
+            "Indexed {} entities ({} semantic, {} code)",
+            stats.total_indexed, stats.semantic_indexed, stats.code_indexed
         );
-        Ok(total_indexed)
+        Ok(stats.total_indexed)
     }
 
     async fn sync(&self) -> Result<bool, BackendError> {
