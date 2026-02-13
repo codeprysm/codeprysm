@@ -63,8 +63,9 @@ pub struct PrismConfig {
 /// semantic_model = "text-embedding-3-small"
 ///
 /// [embedding.onnx]
-/// semantic_model_path = "models/jina-semantic.onnx"
-/// code_model_path = "models/jina-code.onnx"
+/// # Optional: Specify local model paths (auto-downloads from HuggingFace if not set)
+/// # semantic_model_path = "models/jina-semantic.onnx"
+/// # code_model_path = "models/jina-code.onnx"
 /// execution_provider = "cpu"  # or "directml" or "openvino"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -134,17 +135,7 @@ impl EmbeddingConfig {
                             .to_string(),
                     ));
                 }
-                let settings = self.onnx.as_ref().unwrap();
-                if settings.semantic_model_path.as_os_str().is_empty() {
-                    return Err(ConfigError::ValidationError(
-                        "embedding.onnx.semantic_model_path is required".to_string(),
-                    ));
-                }
-                if settings.code_model_path.as_os_str().is_empty() {
-                    return Err(ConfigError::ValidationError(
-                        "embedding.onnx.code_model_path is required".to_string(),
-                    ));
-                }
+                // Model paths are optional - will auto-download from HuggingFace if not provided
                 Ok(())
             }
         }
@@ -283,10 +274,12 @@ impl Default for OpenAISettings {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct OnnxSettings {
-    /// Path to semantic embedding model (ONNX format)
-    pub semantic_model_path: PathBuf,
-    /// Path to code embedding model (ONNX format)
-    pub code_model_path: PathBuf,
+    /// Optional path to semantic embedding model (ONNX format)
+    /// If not provided, will auto-download from HuggingFace Hub
+    pub semantic_model_path: Option<PathBuf>,
+    /// Optional path to code embedding model (ONNX format)
+    /// If not provided, will auto-download from HuggingFace Hub
+    pub code_model_path: Option<PathBuf>,
     /// Execution provider to use
     pub execution_provider: OnnxExecutionProvider,
     /// Device ID (for GPU providers, typically 0)
@@ -300,8 +293,8 @@ pub struct OnnxSettings {
 impl Default for OnnxSettings {
     fn default() -> Self {
         Self {
-            semantic_model_path: PathBuf::from("models/jina-semantic.onnx"),
-            code_model_path: PathBuf::from("models/jina-code.onnx"),
+            semantic_model_path: None, // Auto-download from HuggingFace Hub
+            code_model_path: None,     // Auto-download from HuggingFace Hub
             execution_provider: OnnxExecutionProvider::Cpu,
             device_id: 0,
             num_threads: None, // Auto-detect
@@ -760,6 +753,7 @@ mod tests {
             provider: EmbeddingProviderType::AzureMl,
             azure_ml: None,
             openai: None,
+            onnx: None,
         };
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("azure_ml"));
@@ -775,6 +769,7 @@ mod tests {
                 ..Default::default()
             }),
             openai: None,
+            onnx: None,
         };
         assert!(config.validate().is_ok());
     }
@@ -785,6 +780,7 @@ mod tests {
             provider: EmbeddingProviderType::Openai,
             azure_ml: None,
             openai: None,
+            onnx: None,
         };
         let err = config.validate().unwrap_err();
         assert!(err.to_string().contains("openai"));
@@ -800,6 +796,7 @@ mod tests {
                 semantic_model: "text-embedding-3-small".to_string(),
                 ..Default::default()
             }),
+            onnx: None,
         };
         assert!(config.validate().is_ok());
     }
@@ -832,6 +829,7 @@ mod tests {
                 max_retries: 5,
             }),
             openai: None,
+            onnx: None,
         };
 
         let toml_str = toml::to_string(&config).unwrap();
@@ -850,5 +848,59 @@ mod tests {
         );
         assert_eq!(azure_ml.code_auth_key_env, Some("MY_CODE_KEY".to_string()));
         assert_eq!(azure_ml.timeout_secs, 60);
+    }
+
+    #[test]
+    fn test_embedding_config_validate_onnx_missing() {
+        let config = EmbeddingConfig {
+            provider: EmbeddingProviderType::Onnx,
+            azure_ml: None,
+            openai: None,
+            onnx: None,
+        };
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("onnx"));
+    }
+
+    #[test]
+    fn test_embedding_config_validate_onnx_valid_with_paths() {
+        let config = EmbeddingConfig {
+            provider: EmbeddingProviderType::Onnx,
+            azure_ml: None,
+            openai: None,
+            onnx: Some(OnnxSettings {
+                semantic_model_path: Some(PathBuf::from("models/semantic.onnx")),
+                code_model_path: Some(PathBuf::from("models/code.onnx")),
+                ..Default::default()
+            }),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_embedding_config_validate_onnx_valid_without_paths() {
+        // Model paths are optional - will auto-download
+        let config = EmbeddingConfig {
+            provider: EmbeddingProviderType::Onnx,
+            azure_ml: None,
+            openai: None,
+            onnx: Some(OnnxSettings {
+                semantic_model_path: None,
+                code_model_path: None,
+                ..Default::default()
+            }),
+        };
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_onnx_settings_default() {
+        let settings = OnnxSettings::default();
+        assert!(settings.semantic_model_path.is_none());
+        assert!(settings.code_model_path.is_none());
+        assert_eq!(settings.execution_provider, OnnxExecutionProvider::Cpu);
+        assert_eq!(settings.device_id, 0);
+        assert!(settings.num_threads.is_none());
+        assert!(settings.enable_optimizations);
     }
 }

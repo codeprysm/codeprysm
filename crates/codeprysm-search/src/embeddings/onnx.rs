@@ -67,10 +67,12 @@ impl std::fmt::Display for ExecutionProvider {
 /// Configuration for ONNX provider
 #[derive(Debug, Clone)]
 pub struct OnnxConfig {
-    /// Path to semantic embedding model (ONNX format)
-    pub semantic_model_path: PathBuf,
-    /// Path to code embedding model (ONNX format)
-    pub code_model_path: PathBuf,
+    /// Optional path to semantic embedding model (ONNX format)
+    /// If None, will auto-download from HuggingFace Hub
+    pub semantic_model_path: Option<PathBuf>,
+    /// Optional path to code embedding model (ONNX format)
+    /// If None, will auto-download from HuggingFace Hub
+    pub code_model_path: Option<PathBuf>,
     /// Execution provider to use
     pub execution_provider: ExecutionProvider,
     /// Device ID (for GPU providers)
@@ -81,23 +83,10 @@ pub struct OnnxConfig {
 
 impl Default for OnnxConfig {
     fn default() -> Self {
-        // Try to get models from HuggingFace cache or download
-        // Falls back to local models/ directory if HF download fails
-        let semantic_model_path = download_onnx_model_if_available(
-            SEMANTIC_MODEL_ID,
-            "onnx/model.onnx",
-        )
-        .unwrap_or_else(|| PathBuf::from("models/jina-semantic.onnx"));
-
-        let code_model_path = download_onnx_model_if_available(
-            CODE_MODEL_ID,
-            "onnx/model.onnx",
-        )
-        .unwrap_or_else(|| PathBuf::from("models/jina-code.onnx"));
-
+        // Models will be auto-downloaded from HuggingFace Hub on first use
         Self {
-            semantic_model_path,
-            code_model_path,
+            semantic_model_path: None,
+            code_model_path: None,
             execution_provider: ExecutionProvider::Cpu,
             device_id: 0,
             num_threads: None,
@@ -154,8 +143,8 @@ impl OnnxProvider {
     ///
     /// Environment variables:
     /// - `CODEPRYSM_ONNX_EXECUTION_PROVIDER`: "cpu", "directml", or "openvino" (default: "cpu")
-    /// - `CODEPRYSM_ONNX_SEMANTIC_MODEL_PATH`: Path to semantic model
-    /// - `CODEPRYSM_ONNX_CODE_MODEL_PATH`: Path to code model
+    /// - `CODEPRYSM_ONNX_SEMANTIC_MODEL_PATH`: Optional path to semantic model (auto-downloads if not set)
+    /// - `CODEPRYSM_ONNX_CODE_MODEL_PATH`: Optional path to code model (auto-downloads if not set)
     /// - `CODEPRYSM_ONNX_DEVICE_ID`: Device ID for GPU providers (default: 0)
     /// - `CODEPRYSM_ONNX_NUM_THREADS`: Number of threads for CPU (default: auto)
     pub fn from_env() -> Result<Self> {
@@ -169,15 +158,13 @@ impl OnnxProvider {
             })
             .unwrap_or(ExecutionProvider::Cpu);
 
-        let semantic_model_path =
-            std::env::var("CODEPRYSM_ONNX_SEMANTIC_MODEL_PATH").unwrap_or_else(|_| {
-                "models/jina-semantic.onnx".to_string()
-            });
+        let semantic_model_path = std::env::var("CODEPRYSM_ONNX_SEMANTIC_MODEL_PATH")
+            .ok()
+            .map(PathBuf::from);
 
-        let code_model_path =
-            std::env::var("CODEPRYSM_ONNX_CODE_MODEL_PATH").unwrap_or_else(|_| {
-                "models/jina-code.onnx".to_string()
-            });
+        let code_model_path = std::env::var("CODEPRYSM_ONNX_CODE_MODEL_PATH")
+            .ok()
+            .map(PathBuf::from);
 
         let device_id = std::env::var("CODEPRYSM_ONNX_DEVICE_ID")
             .ok()
@@ -189,8 +176,8 @@ impl OnnxProvider {
             .and_then(|s| s.parse().ok());
 
         let config = OnnxConfig {
-            semantic_model_path: PathBuf::from(semantic_model_path),
-            code_model_path: PathBuf::from(code_model_path),
+            semantic_model_path,
+            code_model_path,
             execution_provider,
             device_id,
             num_threads,
@@ -283,14 +270,30 @@ impl EmbeddingProvider for OnnxProvider {
         let device = self.execution_provider_name();
 
         // Check model file availability
-        let semantic_available = self.inner.config.semantic_model_path.exists();
-        let code_available = self.inner.config.code_model_path.exists();
+        // If paths are not configured, models will be auto-downloaded (always available)
+        let semantic_available = self.inner.config.semantic_model_path
+            .as_ref()
+            .map(|p| p.exists())
+            .unwrap_or(true); // No path configured = will auto-download
+
+        let code_available = self.inner.config.code_model_path
+            .as_ref()
+            .map(|p| p.exists())
+            .unwrap_or(true); // No path configured = will auto-download
 
         let error = if !semantic_available || !code_available {
+            let semantic_path = self.inner.config.semantic_model_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "auto-download".to_string());
+            let code_path = self.inner.config.code_model_path
+                .as_ref()
+                .map(|p| p.display().to_string())
+                .unwrap_or_else(|| "auto-download".to_string());
+
             Some(format!(
                 "ONNX models not found. Semantic: {}, Code: {}",
-                self.inner.config.semantic_model_path.display(),
-                self.inner.config.code_model_path.display()
+                semantic_path, code_path
             ))
         } else {
             None
@@ -336,26 +339,6 @@ impl EmbeddingProvider for OnnxProvider {
 // Helper functions
 // ============================================================================
 
-/// Download ONNX model from HuggingFace Hub if available
-///
-/// Downloads ONNX model file to `~/.cache/huggingface/hub/`. Returns None if
-/// download fails (e.g., network issues, model not found).
-fn download_onnx_model_if_available(model_id: &str, filename: &str) -> Option<PathBuf> {
-    match download_onnx_model(model_id, filename) {
-        Ok(path) => {
-            info!("Downloaded ONNX model from HF Hub: {}", path.display());
-            Some(path)
-        }
-        Err(e) => {
-            warn!(
-                "Failed to download ONNX model {} from HF Hub: {}. Will try local models/ directory.",
-                model_id, e
-            );
-            None
-        }
-    }
-}
-
 /// Download ONNX model file from HuggingFace Hub
 fn download_onnx_model(model_id: &str, filename: &str) -> Result<PathBuf> {
     let api = Api::new()
@@ -385,29 +368,40 @@ fn download_tokenizer(model_id: &str) -> Result<PathBuf> {
 
 /// Load semantic model from disk or download from HuggingFace Hub
 fn load_semantic_model(config: &OnnxConfig) -> Result<SemanticModel> {
-    // Check if model exists at configured path
-    let model_path = if config.semantic_model_path.exists() {
-        info!(
-            "Loading ONNX semantic model from {}",
-            config.semantic_model_path.display()
-        );
-        config.semantic_model_path.clone()
-    } else {
-        // Try to download from HuggingFace Hub
-        info!(
-            "Semantic model not found at {}, downloading from HuggingFace Hub...",
-            config.semantic_model_path.display()
-        );
-        let downloaded_path = download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
-            .map_err(|e| {
-                SearchError::Embedding(format!(
-                    "Failed to load semantic model from {} and download from HuggingFace failed: {}",
-                    config.semantic_model_path.display(),
-                    e
-                ))
-            })?;
-        info!("Downloaded semantic model to: {}", downloaded_path.display());
-        downloaded_path
+    let model_path = match &config.semantic_model_path {
+        Some(path) if path.exists() => {
+            info!(
+                "Loading ONNX semantic model from {}",
+                path.display()
+            );
+            path.clone()
+        }
+        Some(path) => {
+            // Configured path doesn't exist - try to download
+            warn!(
+                "Semantic model not found at {}, downloading from HuggingFace Hub...",
+                path.display()
+            );
+            download_onnx_model(SEMANTIC_MODEL_ID, "onnx/model.onnx")
+                .map_err(|e| {
+                    SearchError::Embedding(format!(
+                        "Failed to load semantic model from {} and download from HuggingFace failed: {}",
+                        path.display(),
+                        e
+                    ))
+                })?
+        }
+        None => {
+            // No path configured - auto-download from HuggingFace Hub
+            info!("Auto-downloading ONNX semantic model from HuggingFace Hub...");
+            download_onnx_model(SEMANTIC_MODEL_ID, "onnx/model.onnx")
+                .map_err(|e| {
+                    SearchError::Embedding(format!(
+                        "Failed to download semantic model from HuggingFace Hub: {}",
+                        e
+                    ))
+                })?
+        }
     };
 
     info!("Creating ONNX session from: {}", model_path.display());
@@ -422,29 +416,40 @@ fn load_semantic_model(config: &OnnxConfig) -> Result<SemanticModel> {
 
 /// Load code model from disk or download from HuggingFace Hub
 fn load_code_model(config: &OnnxConfig) -> Result<CodeModel> {
-    // Check if model exists at configured path
-    let model_path = if config.code_model_path.exists() {
-        info!(
-            "Loading ONNX code model from {}",
-            config.code_model_path.display()
-        );
-        config.code_model_path.clone()
-    } else {
-        // Try to download from HuggingFace Hub
-        info!(
-            "Code model not found at {}, downloading from HuggingFace Hub...",
-            config.code_model_path.display()
-        );
-        let downloaded_path = download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
-            .map_err(|e| {
-                SearchError::Embedding(format!(
-                    "Failed to load code model from {} and download from HuggingFace failed: {}",
-                    config.code_model_path.display(),
-                    e
-                ))
-            })?;
-        info!("Downloaded code model to: {}", downloaded_path.display());
-        downloaded_path
+    let model_path = match &config.code_model_path {
+        Some(path) if path.exists() => {
+            info!(
+                "Loading ONNX code model from {}",
+                path.display()
+            );
+            path.clone()
+        }
+        Some(path) => {
+            // Configured path doesn't exist - try to download
+            warn!(
+                "Code model not found at {}, downloading from HuggingFace Hub...",
+                path.display()
+            );
+            download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
+                .map_err(|e| {
+                    SearchError::Embedding(format!(
+                        "Failed to load code model from {} and download from HuggingFace failed: {}",
+                        path.display(),
+                        e
+                    ))
+                })?
+        }
+        None => {
+            // No path configured - auto-download from HuggingFace Hub
+            info!("Auto-downloading ONNX code model from HuggingFace Hub...");
+            download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
+                .map_err(|e| {
+                    SearchError::Embedding(format!(
+                        "Failed to download code model from HuggingFace Hub: {}",
+                        e
+                    ))
+                })?
+        }
     };
 
     info!("Creating ONNX session from: {}", model_path.display());
