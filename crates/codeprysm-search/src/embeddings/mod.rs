@@ -5,6 +5,7 @@
 //! - **Local** - Candle-based inference with Jina models (CPU/Metal/CUDA)
 //! - **Azure ML** - Azure ML Online Endpoints with managed Jina deployments
 //! - **OpenAI** - OpenAI-compatible APIs (OpenAI, Azure OpenAI, Ollama, Prism SaaS)
+//! - **ONNX** - ONNX Runtime with DirectML/OpenVINO support (⚠️ EXPERIMENTAL)
 //!
 //! # Architecture
 //!
@@ -14,7 +15,8 @@
 //! EmbeddingProvider (trait)
 //!     ├── LocalProvider     - Candle + Jina models
 //!     ├── AzureMLProvider   - HTTP client for /score API
-//!     └── OpenAIProvider    - HTTP client for /v1/embeddings API
+//!     ├── OpenAIProvider    - HTTP client for /v1/embeddings API
+//!     └── OnnxProvider      - ONNX Runtime (CPU/DirectML/OpenVINO)
 //! ```
 //!
 //! `EmbeddingsManager` serves as a facade for backward compatibility,
@@ -43,6 +45,8 @@ pub mod jina_bert_v2;
 mod local;
 pub mod openai;
 mod provider;
+#[cfg(feature = "onnx")]
+pub mod onnx;
 
 // Re-export provider types
 pub use provider::{EmbeddingProvider, EmbeddingProviderType, ProviderStatus};
@@ -58,6 +62,10 @@ pub use azure_ml::{AzureMLAuth, AzureMLConfig, AzureMLProvider};
 
 // Re-export OpenAIProvider
 pub use openai::{OpenAIConfig, OpenAIProvider};
+
+// Re-export OnnxProvider (optional, feature-gated)
+#[cfg(feature = "onnx")]
+pub use onnx::{ExecutionProvider, OnnxConfig, OnnxProvider};
 
 // Re-export embedding constants from local module
 pub use local::{CODE_DIM, EMBEDDING_DIM, SEMANTIC_DIM};

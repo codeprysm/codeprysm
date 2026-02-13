@@ -319,6 +319,8 @@ fn merge_embedding(
         azure_ml: overlay.azure_ml.or(base.azure_ml),
         // Overlay openai takes precedence if set
         openai: overlay.openai.or(base.openai),
+        // Overlay onnx takes precedence if set
+        onnx: overlay.onnx.or(base.onnx),
     }
 }
 

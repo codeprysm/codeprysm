@@ -15,6 +15,10 @@ categories = ["command-line-utilities", "development-tools"]
 default = []
 metal = ["codeprysm-search/metal", "codeprysm-backend/metal", "codeprysm-mcp/metal"]
 cuda = ["codeprysm-search/cuda", "codeprysm-backend/cuda", "codeprysm-mcp/cuda"]
+# ONNX Runtime features (EXPERIMENTAL)
+onnx = ["codeprysm-search/onnx", "codeprysm-backend/onnx", "codeprysm-mcp/onnx"]
+onnx-directml = ["onnx", "codeprysm-search/onnx-directml", "codeprysm-backend/onnx-directml", "codeprysm-mcp/onnx-directml"]
+onnx-openvino = ["onnx", "codeprysm-search/onnx-openvino", "codeprysm-backend/onnx-openvino", "codeprysm-mcp/onnx-openvino"]
 
 [dependencies]
 # Internal crates

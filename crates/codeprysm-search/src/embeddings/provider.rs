@@ -21,6 +21,8 @@ pub enum EmbeddingProviderType {
     AzureMl,
     /// OpenAI-compatible API (OpenAI, Azure OpenAI, Ollama, Prism SaaS)
     Openai,
+    /// ONNX Runtime (CPU/DirectML/OpenVINO) - ⚠️ EXPERIMENTAL
+    Onnx,
 }
 
 impl std::fmt::Display for EmbeddingProviderType {
@@ -29,6 +31,7 @@ impl std::fmt::Display for EmbeddingProviderType {
             EmbeddingProviderType::Local => write!(f, "local"),
             EmbeddingProviderType::AzureMl => write!(f, "azure-ml"),
             EmbeddingProviderType::Openai => write!(f, "openai"),
+            EmbeddingProviderType::Onnx => write!(f, "onnx"),
         }
     }
 }
@@ -183,6 +186,7 @@ mod tests {
         assert_eq!(EmbeddingProviderType::Local.to_string(), "local");
         assert_eq!(EmbeddingProviderType::AzureMl.to_string(), "azure-ml");
         assert_eq!(EmbeddingProviderType::Openai.to_string(), "openai");
+        assert_eq!(EmbeddingProviderType::Onnx.to_string(), "onnx");
     }
 
     #[test]

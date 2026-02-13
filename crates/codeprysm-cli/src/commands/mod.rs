@@ -184,5 +184,42 @@ pub fn to_search_embedding_config(config: &PrismConfig) -> SearchEmbeddingConfig
                 SearchEmbeddingConfig::openai()
             }
         }
+        EmbeddingProviderType::Onnx => {
+            #[cfg(feature = "onnx")]
+            if let Some(ref onnx) = config.embedding.onnx {
+                use codeprysm_search::embeddings::onnx::{ExecutionProvider, OnnxConfig};
+
+                let execution_provider = match onnx.execution_provider {
+                    codeprysm_config::OnnxExecutionProvider::Cpu => ExecutionProvider::Cpu,
+                    codeprysm_config::OnnxExecutionProvider::DirectMl => {
+                        ExecutionProvider::DirectML
+                    }
+                    codeprysm_config::OnnxExecutionProvider::OpenVino => {
+                        ExecutionProvider::OpenVino
+                    }
+                };
+
+                let onnx_config = OnnxConfig {
+                    semantic_model_path: onnx.semantic_model_path.clone(),
+                    code_model_path: onnx.code_model_path.clone(),
+                    execution_provider,
+                    device_id: onnx.device_id,
+                    num_threads: onnx.num_threads,
+                };
+                SearchEmbeddingConfig::onnx_with_config(onnx_config)
+            } else {
+                SearchEmbeddingConfig::onnx()
+            }
+
+            #[cfg(not(feature = "onnx"))]
+            {
+                if config.embedding.onnx.is_some() {
+                    eprintln!(
+                        "Warning: ONNX provider requested but not compiled. Rebuild with --features onnx"
+                    );
+                }
+                SearchEmbeddingConfig::local()
+            }
+        }
     }
 }

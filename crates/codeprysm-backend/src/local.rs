@@ -231,6 +231,39 @@ impl LocalBackend {
                     EmbeddingConfig::openai()
                 }
             }
+            EmbeddingProviderType::Onnx => {
+                #[cfg(feature = "onnx")]
+                {
+                    use codeprysm_search::embeddings::onnx::{ExecutionProvider, OnnxConfig};
+
+                    if let Some(ref onnx) = self.config.embedding.onnx {
+                        // Convert execution provider enum
+                        let execution_provider = match onnx.execution_provider {
+                            codeprysm_config::OnnxExecutionProvider::Cpu => ExecutionProvider::Cpu,
+                            codeprysm_config::OnnxExecutionProvider::DirectMl => ExecutionProvider::DirectML,
+                            codeprysm_config::OnnxExecutionProvider::OpenVino => ExecutionProvider::OpenVino,
+                        };
+
+                        let config = OnnxConfig {
+                            semantic_model_path: onnx.semantic_model_path.clone(),
+                            code_model_path: onnx.code_model_path.clone(),
+                            execution_provider,
+                            device_id: onnx.device_id,
+                            num_threads: onnx.num_threads,
+                        };
+                        EmbeddingConfig::onnx_with_config(config)
+                    } else {
+                        // No settings provided, let factory read from environment
+                        EmbeddingConfig::onnx()
+                    }
+                }
+                #[cfg(not(feature = "onnx"))]
+                {
+                    // Fall back to Local provider if ONNX not compiled
+                    tracing::warn!("ONNX provider requested but not compiled. Falling back to Local provider. Rebuild with --features onnx");
+                    EmbeddingConfig::local()
+                }
+            }
         }
     }
 

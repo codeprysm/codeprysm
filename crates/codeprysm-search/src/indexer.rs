@@ -30,7 +30,7 @@ use std::sync::Arc;
 
 use codeprysm_core::lazy::manager::LazyGraphManager;
 use codeprysm_core::{Node, PetCodeGraph};
-use tracing::{debug, info};
+use tracing::{debug, info, warn};
 
 use crate::graph_context::GraphContext;
 
@@ -403,7 +403,7 @@ impl GraphIndexer {
                     Ok(vecs) => vecs,
                     Err(e) => {
                         // On batch failure, mark all nodes in batch as failed
-                        debug!("Batch {} failed: {}", batch_idx, e);
+                        warn!("Batch {} failed to encode embeddings: {}", batch_idx, e);
                         stats.total_failed += batch.len();
                         continue;
                     }
@@ -411,7 +411,7 @@ impl GraphIndexer {
 
             // Verify we got the expected number of embeddings
             if semantic_vecs.len() != batch.len() || code_vecs.len() != batch.len() {
-                debug!(
+                warn!(
                     "Batch {} size mismatch: expected {}, got semantic={}, code={}",
                     batch_idx,
                     batch.len(),
