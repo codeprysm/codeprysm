@@ -263,7 +263,3 @@ Container (kind=repository, name="codeprysm")  ← git metadata (remote, branch,
 - `docs/getting-started-docker.md`: Docker setup guide
 - `docs/development/scm-tag-naming-convention.md`: SCM tag syntax reference
 - `docs/guides/scm-overlays.md`: Adding scope metadata to code graphs
-
-## Planning
-
-The current work plans and task lists are stored under `/plans` folder in the repository root
