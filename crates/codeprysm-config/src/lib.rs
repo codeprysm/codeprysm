@@ -50,7 +50,7 @@ pub struct PrismConfig {
 ///
 /// ```toml
 /// [embedding]
-/// provider = "local"  # or "azure-ml" or "openai"
+/// provider = "local"  # or "azure-ml" or "openai" or "onnx"
 ///
 /// [embedding.azure_ml]
 /// semantic_endpoint = "https://..."
@@ -61,6 +61,11 @@ pub struct PrismConfig {
 /// url = "https://api.openai.com/v1"
 /// api_key_env = "OPENAI_API_KEY"
 /// semantic_model = "text-embedding-3-small"
+///
+/// [embedding.onnx]
+/// semantic_model_path = "models/jina-semantic.onnx"
+/// code_model_path = "models/jina-code.onnx"
+/// execution_provider = "cpu"  # or "directml" or "openvino"
 /// ```
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(default)]
@@ -73,6 +78,9 @@ pub struct EmbeddingConfig {
 
     /// OpenAI-compatible provider settings (required when provider = "openai")
     pub openai: Option<OpenAISettings>,
+
+    /// ONNX Runtime provider settings (required when provider = "onnx")
+    pub onnx: Option<OnnxSettings>,
 }
 
 impl EmbeddingConfig {
@@ -119,6 +127,26 @@ impl EmbeddingConfig {
                 }
                 Ok(())
             }
+            EmbeddingProviderType::Onnx => {
+                if self.onnx.is_none() {
+                    return Err(ConfigError::ValidationError(
+                        "embedding.provider is 'onnx' but [embedding.onnx] section is missing"
+                            .to_string(),
+                    ));
+                }
+                let settings = self.onnx.as_ref().unwrap();
+                if settings.semantic_model_path.as_os_str().is_empty() {
+                    return Err(ConfigError::ValidationError(
+                        "embedding.onnx.semantic_model_path is required".to_string(),
+                    ));
+                }
+                if settings.code_model_path.as_os_str().is_empty() {
+                    return Err(ConfigError::ValidationError(
+                        "embedding.onnx.code_model_path is required".to_string(),
+                    ));
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -134,6 +162,8 @@ pub enum EmbeddingProviderType {
     AzureMl,
     /// OpenAI-compatible API (OpenAI, Azure OpenAI, Ollama, etc.)
     Openai,
+    /// ONNX Runtime (CPU/DirectML/OpenVINO) - ⚠️ EXPERIMENTAL
+    Onnx,
 }
 
 impl std::fmt::Display for EmbeddingProviderType {
@@ -142,6 +172,7 @@ impl std::fmt::Display for EmbeddingProviderType {
             Self::Local => write!(f, "local"),
             Self::AzureMl => write!(f, "azure-ml"),
             Self::Openai => write!(f, "openai"),
+            Self::Onnx => write!(f, "onnx"),
         }
     }
 }
@@ -154,8 +185,9 @@ impl std::str::FromStr for EmbeddingProviderType {
             "local" => Ok(Self::Local),
             "azure-ml" | "azureml" | "azure_ml" => Ok(Self::AzureMl),
             "openai" => Ok(Self::Openai),
+            "onnx" | "onnxruntime" | "onnx_runtime" => Ok(Self::Onnx),
             _ => Err(ConfigError::ValidationError(format!(
-                "Unknown embedding provider: '{}'. Valid values: local, azure-ml, openai",
+                "Unknown embedding provider: '{}'. Valid values: local, azure-ml, openai, onnx",
                 s
             ))),
         }
@@ -244,6 +276,50 @@ impl Default for OpenAISettings {
             azure_mode: false,
         }
     }
+}
+
+/// ONNX Runtime provider settings.
+/// ⚠️ EXPERIMENTAL - Requires ONNX Runtime 2.0.0-rc
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct OnnxSettings {
+    /// Path to semantic embedding model (ONNX format)
+    pub semantic_model_path: PathBuf,
+    /// Path to code embedding model (ONNX format)
+    pub code_model_path: PathBuf,
+    /// Execution provider to use
+    pub execution_provider: OnnxExecutionProvider,
+    /// Device ID (for GPU providers, typically 0)
+    pub device_id: u32,
+    /// Number of threads for CPU inference
+    pub num_threads: Option<usize>,
+    /// Enable optimizations
+    pub enable_optimizations: bool,
+}
+
+impl Default for OnnxSettings {
+    fn default() -> Self {
+        Self {
+            semantic_model_path: PathBuf::from("models/jina-semantic.onnx"),
+            code_model_path: PathBuf::from("models/jina-code.onnx"),
+            execution_provider: OnnxExecutionProvider::Cpu,
+            device_id: 0,
+            num_threads: None, // Auto-detect
+            enable_optimizations: true,
+        }
+    }
+}
+
+/// ONNX Runtime execution provider selection
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum OnnxExecutionProvider {
+    /// CPU with optimizations (default)
+    Cpu,
+    /// DirectML (Windows DirectX ML for AMD/NVIDIA/Intel GPUs)
+    DirectMl,
+    /// OpenVINO (Intel CPUs and GPUs including Arc)
+    OpenVino,
 }
 
 /// Storage configuration for graph and index data.
@@ -636,6 +712,7 @@ mod tests {
         assert_eq!(config.provider, EmbeddingProviderType::Local);
         assert!(config.azure_ml.is_none());
         assert!(config.openai.is_none());
+        assert!(config.onnx.is_none());
     }
 
     #[test]
@@ -643,6 +720,7 @@ mod tests {
         assert_eq!(EmbeddingProviderType::Local.to_string(), "local");
         assert_eq!(EmbeddingProviderType::AzureMl.to_string(), "azure-ml");
         assert_eq!(EmbeddingProviderType::Openai.to_string(), "openai");
+        assert_eq!(EmbeddingProviderType::Onnx.to_string(), "onnx");
     }
 
     #[test]

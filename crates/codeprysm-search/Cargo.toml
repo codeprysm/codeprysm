@@ -16,6 +16,10 @@ default = []
 metal = ["candle-core/metal", "candle-nn/metal", "candle-transformers/metal"]
 cuda = ["candle-core/cuda", "candle-nn/cuda", "candle-transformers/cuda"]
 rate-limit = ["dep:governor"]
+# ONNX Runtime features (EXPERIMENTAL - requires ort 2.0.0-rc)
+onnx = ["dep:ort"]
+onnx-directml = ["onnx", "ort/directml"]
+onnx-openvino = ["onnx", "ort/openvino"]
 
 [dependencies]
 # Core
@@ -40,6 +44,12 @@ reqwest.workspace = true
 
 # Rate limiting (optional, for remote providers)
 governor = { workspace = true, optional = true }
+
+# ONNX Runtime (optional, EXPERIMENTAL)
+# Note: 2.0.0 is still in RC as of Jan 2025
+# Requires 'std' feature for file loading, 'download-binaries' for auto-download
+# TLS is required for download-binaries (using rustls for cross-platform compatibility)
+ort = { version = "2.0.0-rc.7", optional = true, default-features = false, features = ["std", "download-binaries", "tls-rustls"] }
 
 # Serialization
 serde.workspace = true

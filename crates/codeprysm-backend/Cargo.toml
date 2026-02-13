@@ -46,3 +46,7 @@ default = []
 # GPU acceleration features (passed through to codeprysm-search)
 metal = ["codeprysm-search/metal"]
 cuda = ["codeprysm-search/cuda"]
+# ONNX Runtime features (EXPERIMENTAL)
+onnx = ["codeprysm-search/onnx"]
+onnx-directml = ["onnx", "codeprysm-search/onnx-directml"]
+onnx-openvino = ["onnx", "codeprysm-search/onnx-openvino"]

@@ -56,6 +56,9 @@ cargo install codeprysm-cli --features cuda
 
 - Docker (for Qdrant vector database)
 - Rust 1.85+ (only if building from source)
+- Internet connection (for first-time model download)
+
+> **Note**: Embedding models (~500MB) are automatically downloaded from HuggingFace Hub to `~/.cache/huggingface/hub/` on first use. This is a one-time download.
 
 ## Quick Start
 

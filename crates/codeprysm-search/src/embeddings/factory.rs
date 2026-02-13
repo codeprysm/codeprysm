@@ -12,6 +12,8 @@ use super::azure_ml::{AzureMLConfig, AzureMLProvider};
 use super::local::LocalProvider;
 use super::openai::{OpenAIConfig, OpenAIProvider};
 use super::provider::{EmbeddingProvider, EmbeddingProviderType};
+#[cfg(feature = "onnx")]
+use super::onnx::{OnnxConfig as OnnxProviderConfig, OnnxProvider};
 
 /// Expected embedding dimension for Prism collections
 pub const EXPECTED_DIM: usize = CollectionConfig::SEMANTIC.dimension as usize;
@@ -29,6 +31,9 @@ pub struct EmbeddingConfig {
     pub azure_ml: Option<AzureMLConfig>,
     /// OpenAI provider settings (used when provider = Openai)
     pub openai: Option<OpenAIConfig>,
+    /// ONNX provider settings (used when provider = Onnx)
+    #[cfg(feature = "onnx")]
+    pub onnx: Option<OnnxProviderConfig>,
 }
 
 impl EmbeddingConfig {
@@ -38,6 +43,8 @@ impl EmbeddingConfig {
             provider: EmbeddingProviderType::Local,
             azure_ml: None,
             openai: None,
+            #[cfg(feature = "onnx")]
+            onnx: None,
         }
     }
 
@@ -47,6 +54,8 @@ impl EmbeddingConfig {
             provider: EmbeddingProviderType::AzureMl,
             azure_ml: Some(config),
             openai: None,
+            #[cfg(feature = "onnx")]
+            onnx: None,
         }
     }
 
@@ -56,6 +65,8 @@ impl EmbeddingConfig {
             provider: EmbeddingProviderType::AzureMl,
             azure_ml: None,
             openai: None,
+            #[cfg(feature = "onnx")]
+            onnx: None,
         }
     }
 
@@ -65,6 +76,8 @@ impl EmbeddingConfig {
             provider: EmbeddingProviderType::Openai,
             azure_ml: None,
             openai: Some(config),
+            #[cfg(feature = "onnx")]
+            onnx: None,
         }
     }
 
@@ -74,6 +87,30 @@ impl EmbeddingConfig {
             provider: EmbeddingProviderType::Openai,
             azure_ml: None,
             openai: None,
+            #[cfg(feature = "onnx")]
+            onnx: None,
+        }
+    }
+
+    /// Create config for ONNX provider with explicit config
+    #[cfg(feature = "onnx")]
+    pub fn onnx_with_config(config: OnnxProviderConfig) -> Self {
+        Self {
+            provider: EmbeddingProviderType::Onnx,
+            azure_ml: None,
+            openai: None,
+            onnx: Some(config),
+        }
+    }
+
+    /// Create config for ONNX provider (reads from environment)
+    #[cfg(feature = "onnx")]
+    pub fn onnx() -> Self {
+        Self {
+            provider: EmbeddingProviderType::Onnx,
+            azure_ml: None,
+            openai: None,
+            onnx: None,
         }
     }
 }
@@ -145,6 +182,21 @@ pub fn create(config: &EmbeddingConfig) -> Result<Arc<dyn EmbeddingProvider>> {
                 OpenAIProvider::from_env()?
             };
             Arc::new(provider)
+        }
+        #[cfg(feature = "onnx")]
+        EmbeddingProviderType::Onnx => {
+            let provider = if let Some(ref onnx_config) = config.onnx {
+                OnnxProvider::new(onnx_config.clone())?
+            } else {
+                OnnxProvider::from_env()?
+            };
+            Arc::new(provider)
+        }
+        #[cfg(not(feature = "onnx"))]
+        EmbeddingProviderType::Onnx => {
+            return Err(SearchError::Embedding(
+                "ONNX provider not available. Rebuild with --features onnx".into(),
+            ));
         }
     };
 

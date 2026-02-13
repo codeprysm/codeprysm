@@ -195,6 +195,27 @@ cargo build --release
 - **Hybrid search**: Semantic (candle/jina) + keyword matching with score fusion
 - **Multi-tenant**: Qdrant collections support multiple repositories
 
+## Model Management
+
+CodePrysm uses two embedding providers:
+
+### LocalProvider (Candle + SafeTensors)
+- **Models**: Jina Embeddings v2 Base EN (semantic), Jina Embeddings v2 Base Code (code)
+- **Format**: SafeTensors (~130MB per model)
+- **Download**: Auto-downloaded from HuggingFace Hub to `~/.cache/huggingface/hub/` on first use
+- **GPU Support**: Metal (macOS), CUDA (Linux/Windows) via compile-time features
+- **Status**: Production-ready (default provider)
+
+### OnnxProvider (ONNX Runtime) - EXPERIMENTAL
+- **Models**: Same Jina models in ONNX format (~414-504MB per model)
+- **Format**: ONNX (larger file size, different runtime)
+- **Download**: Auto-downloaded from HuggingFace Hub on first use
+- **GPU Support**: DirectML (Windows), OpenVINO (Intel hardware)
+- **Status**: Experimental (depends on ort 2.0.0-rc)
+- **Enable**: Build with `--features onnx` (CPU) or `--features onnx-directml` (GPU)
+
+**Important**: The `models/` directory is ignored by git. All models are cached in `~/.cache/huggingface/hub/` and downloaded on demand. No models should ever be committed to the repository.
+
 ## Language Support
 
 Currently supports: Python, JavaScript/TypeScript, C/C++, C#, Go, Rust
@@ -242,3 +263,7 @@ Container (kind=repository, name="codeprysm")  ← git metadata (remote, branch,
 - `docs/getting-started-docker.md`: Docker setup guide
 - `docs/development/scm-tag-naming-convention.md`: SCM tag syntax reference
 - `docs/guides/scm-overlays.md`: Adding scope metadata to code graphs
+
+## Planning
+
+The current work plans and task lists are stored under `/plans` folder in the repository root
