@@ -22,7 +22,7 @@ CodePrysm builds a comprehensive graph representation of your codebase where:
 - **Scalable Architecture** - Handles codebases with 100K+ files
 - **MCP Integration** - AI-powered code exploration via Model Context Protocol
 - **Multi-Language** - Python, JavaScript/TypeScript, C/C++, C#, Go, Rust
-- **GPU Acceleration** - Metal (macOS) and CUDA (Linux/Windows) support
+- **GPU Acceleration** - Metal (macOS), CUDA (NVIDIA), and DirectML (Windows) support
 
 ## Installation
 
@@ -45,12 +45,17 @@ cargo build --release
 For faster embedding generation, install with GPU support:
 
 ```bash
-# macOS (Apple Silicon)
+# macOS (Apple Silicon) - Metal/MPS acceleration
 cargo install codeprysm-cli --features metal
 
-# Linux (NVIDIA GPU)
+# Linux/Windows (NVIDIA GPU) - CUDA acceleration
 cargo install codeprysm-cli --features cuda
+
+# Windows (Intel Arc, AMD, NVIDIA) - DirectML via ONNX Runtime (experimental)
+cargo install codeprysm-cli --features onnx-directml
 ```
+
+**Note**: The DirectML feature uses ONNX Runtime and provides GPU acceleration on Windows for a wider range of hardware (Intel Arc, AMD, and NVIDIA GPUs). Metal and CUDA features use the Candle framework and are production-ready, while ONNX support is experimental.
 
 ### Prerequisites
 
