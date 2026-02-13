@@ -37,10 +37,9 @@ use super::provider::{EmbeddingProvider, EmbeddingProviderType, ProviderStatus};
 /// Unified embedding dimension (both models output 768-dim)
 pub const EMBEDDING_DIM: usize = 768;
 
-/// Semantic model on HuggingFace Hub
-const SEMANTIC_MODEL_ID: &str = "jinaai/jina-embeddings-v2-base-en";
-
 /// Code model on HuggingFace Hub
+/// NOTE: This model is used for both semantic and code embeddings because
+/// the semantic model (jina-embeddings-v2-base-en) doesn't have ONNX format available
 const CODE_MODEL_ID: &str = "jinaai/jina-embeddings-v2-base-code";
 
 /// ONNX Runtime execution provider
@@ -367,6 +366,7 @@ fn download_tokenizer(model_id: &str) -> Result<PathBuf> {
 }
 
 /// Load semantic model from disk or download from HuggingFace Hub
+/// NOTE: Uses CODE_MODEL_ID for download because semantic model doesn't have ONNX format on HF
 fn load_semantic_model(config: &OnnxConfig) -> Result<SemanticModel> {
     let model_path = match &config.semantic_model_path {
         Some(path) if path.exists() => {
@@ -382,7 +382,8 @@ fn load_semantic_model(config: &OnnxConfig) -> Result<SemanticModel> {
                 "Semantic model not found at {}, downloading from HuggingFace Hub...",
                 path.display()
             );
-            download_onnx_model(SEMANTIC_MODEL_ID, "onnx/model.onnx")
+            // Using CODE_MODEL_ID because semantic model doesn't have ONNX format
+            download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
                 .map_err(|e| {
                     SearchError::Embedding(format!(
                         "Failed to load semantic model from {} and download from HuggingFace failed: {}",
@@ -393,11 +394,12 @@ fn load_semantic_model(config: &OnnxConfig) -> Result<SemanticModel> {
         }
         None => {
             // No path configured - auto-download from HuggingFace Hub
-            info!("Auto-downloading ONNX semantic model from HuggingFace Hub...");
-            download_onnx_model(SEMANTIC_MODEL_ID, "onnx/model.onnx")
+            // Using CODE_MODEL_ID because semantic model doesn't have ONNX format
+            info!("Auto-downloading ONNX model from HuggingFace Hub (using code model for both semantic and code)...");
+            download_onnx_model(CODE_MODEL_ID, "onnx/model.onnx")
                 .map_err(|e| {
                     SearchError::Embedding(format!(
-                        "Failed to download semantic model from HuggingFace Hub: {}",
+                        "Failed to download model from HuggingFace Hub: {}",
                         e
                     ))
                 })?
